@@ -1,3 +1,4 @@
+
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 #MaxThreadsBuffer True
@@ -618,7 +619,12 @@ CapsLock & Enter::Send "{AppsKey}"
 ;   Win + N / M        walk BACK / FORWARD through focus history (non-cyclic)
 ;                        (same idea as CapsLock+n/m for prev/next tab: N back,
 ;                        M forward; LWin or RWin — defined with other Win chords)
-;   RAlt               Win+Tab  (Task View)       instant
+;   *RAlt              Win+Tab  (Task View) — `*` wildcard so it still runs if
+;                        the driver holds LCtrl before RAlt (see AltGr note:
+;                        https://www.autohotkey.com/docs/v2/Hotkeys.htm#AltGr ).
+;                        Plain `RAlt::` often never fires on that stack. If
+;                        `*RAlt` ever fights AltGr+letter typing, add a backup
+;                        chord here, e.g. `CapsLock & v::TaskViewHotkey()`.
 ;   CapsLock + RAlt    Alt+Tab  (window switcher)
 ;   P (held) + Tab     Shift+Tab (reverse element — same as old LAlt+Tab)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
@@ -644,6 +650,11 @@ Notify(text, ms := 1200) {
 }
 ClearNotify() {
     ToolTip , , , 2
+}
+
+; Win+Tab (Task View). Bound from `*RAlt` (see header).
+TaskViewHotkey() {
+    ShellCombo("LWin", "Tab")
 }
 
 HistoryTitle(id) {
@@ -746,7 +757,9 @@ GoForwardWindowHistory() {
     Notify((steps = 0 ? "▶ current: " : "▶ back " steps ": ") HistoryTitle(id))
 }
 
-RAlt::            ShellCombo("LWin", "Tab")
+; Bare `RAlt::` often never fires when the OS/driver holds LCtrl first (AltGr).
+; `*RAlt` still runs in that case.
+*RAlt::TaskViewHotkey()
 CapsLock & RAlt:: ShellCombo("LAlt", "Tab")
 
 ; Reverse UI tab order (Shift+Tab). Hold physical P, press Tab — avoids making
@@ -775,7 +788,7 @@ CapsLock & n::    Send "^+{Tab}"
 ;   LWin/RWin + Enter        komorebic start
 ;   LWin/RWin + RShift       komorebic stop
 ;
-; Implemented as LWin & key / RWin & key (not #) so bare LWin:: / RWin::
+; Implemented as LWin & key / RWin & key (not #) so bare `LWin::` / `RWin::`
 ; can swallow a lone Win tap — Start / Search / Copilot does not open; use
 ; Flow Launcher (or your own binding) for launcher. Chords still override
 ; the usual Win+ shortcuts while the combo is pressed.
@@ -899,8 +912,8 @@ LWin & [::KomorebiTouch("manage",       "▣", "Tiled")
 LWin & ]::KomorebiTouch("toggle-float", "▢", "Floated")
 LWin & Enter::KomorebiNotifyStart
 LWin & RShift::KomorebiNotifyStop
-LWin::return
- 
+LWin::return                                  ; swallow lone LWin — no Start / Copilot tap
+
 RWin & q::return
 RWin & j::KomoDir("left")
 RWin & k::KomoDir("down")
@@ -918,7 +931,7 @@ RWin & [::KomorebiTouch("manage",       "▣", "Tiled")
 RWin & ]::KomorebiTouch("toggle-float", "▢", "Floated")
 RWin & Enter::KomorebiNotifyStart
 RWin & RShift::KomorebiNotifyStop
-RWin::return
+RWin::return                                  ; swallow lone RWin — same as LWin
 
 
 ; ═══════════════════════════════════════════════════════════════════════════
