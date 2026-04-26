@@ -972,7 +972,7 @@ LAlt & CapsLock:: Send "{Escape}"
 
 CapsLock & q:: Send "^c"
 CapsLock & w:: Send "^x"
-CapsLock & e:: Send "^vo"
+CapsLock & e:: Send "^v"
 CapsLock & a:: Send "^a"
 CapsLock & s:: Send "^s"
 CapsLock & f:: Send "^f"
