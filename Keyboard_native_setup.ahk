@@ -538,9 +538,8 @@ Escape:: EndGridNav()
 ; ═══════════════════════════════════════════════════════════════════════════
 ;   CapsLock + [ / ]    Home / End   (moved from h / ;)
 ;   CapsLock + h       absorbed      (Home was here; avoids leaking "H")
-;   CapsLock + ; / '    outside mouse/grid: left / right click at cursor;
-;                        in mouse mode: same as bare ; / ' (L/R drag); in
-;                        grid: centre L/R click (same vkBA / ' as grid layer)
+;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
+;                        menu). Mouse/grid: unchanged (drag / grid L/R).
 ;   CapsLock + LShift / \   Ctrl+Shift+P  (command palette)
 
 ; In mouse mode: trigger motion immediately (zero-latency first move); the
@@ -600,7 +599,7 @@ CapsLock & `;:: {
     else if gridActive
         GridClick("L")
     else
-        Click
+        Send "{Enter}"
 }
 CapsLock & ':: {
     global gridActive, mouseMode
@@ -609,12 +608,28 @@ CapsLock & ':: {
     else if gridActive
         GridClick("R")
     else
-        Click "Right"
+        Send "{AppsKey}"                         ; context menu (was Caps+Enter)
 }
 
 CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS Code)
 CapsLock & \:: Send "{Blind}^+p"
-CapsLock & Enter:: return                      ; absorb (no AppsKey)
+CapsLock & Enter:: return                      ; spare — see “Chord ideas” below
+
+; ── Chord ideas (unbound or absorb-only; pick what you use) ────────────────
+;   CapsLock + Enter     e.g. Win+Shift+S (Snip), Win+V (clipboard), Win+.
+;                        (emoji), Win+Alt+R (Record — Win11), or Run dialog
+;   CapsLock + RShift    (currently unused) e.g. Win+L lock, Win+R run,
+;                        Win+Ctrl+O (narrator off) — avoid clashing Komorebi
+;                        RWin+RShift (komorebic stop) when RWin is down
+;   Shift + Enter        app-specific (Ctrl+Enter submit in chat); global is
+;                        risky — prefer #HotIf WinActive(...) if you add it
+;   Shift + RShift       almost never used; good slot for one-shot macro or
+;                        `Send "#^d"` virtual-desktop preview (Win10/11)
+;   ` leader (~SC029 & …) second prefix layer like LWin Komorebi — quick
+;                        settings Win+I, task mgr Ctrl+Shift+Esc, etc.
+;   Alt + Tab            you already have CapsLock+RAlt → Alt+Tab; plain Alt+Tab
+;                        is the OS default — remap only if you need Shift+Alt+Tab
+;                        or a different switcher (PowerToys) on another chord
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Tab / window / element switching  +  focus history
