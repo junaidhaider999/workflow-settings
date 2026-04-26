@@ -644,7 +644,8 @@ CapsLock & Enter:: return                      ; spare — see “Chord ideas”
 ;                        `*RAlt` ever fights AltGr+letter typing, add a backup
 ;                        chord here, e.g. `CapsLock & v::TaskViewHotkey()`.
 ;   CapsLock + RAlt    Alt+Tab  (window switcher)
-;   P (held) + Tab     Shift+Tab (reverse element — same as old LAlt+Tab)
+;   ; (held) + Tab     Shift+Tab (reverse element — same as old LAlt+Tab)
+;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
 ;   CapsLock + 1…0     Ctrl+1…0  (jump to tab by index — Browser section)
 ;   CapsLock + b       Win+D    (Show Desktop)
@@ -780,10 +781,15 @@ GoForwardWindowHistory() {
 *RAlt:: TaskViewHotkey()
 CapsLock & RAlt:: ShellCombo("LAlt", "Tab")
 
-; Reverse UI tab order (Shift+Tab). Hold physical P, press Tab — avoids making
-; `p` a prefix key (would fight other bindings and normal typing).
-#HotIf GetKeyState("p", "P") && !gridActive && !mouseMode
+; Reverse UI tab order (Shift+Tab). Hold physical ; (vkBA), press Tab — same
+; GetKeyState pattern as the old P+Tab (no prefix-key delay).
+#HotIf GetKeyState("vkBA", "P") && !gridActive && !mouseMode
 Tab:: Send "+{Tab}"
+#HotIf
+
+; Tab ×3. Hold physical ' (vkDE), press Tab — same pattern (no `;` prefix).
+#HotIf GetKeyState("vkDE", "P") && !gridActive && !mouseMode
+Tab:: SendInput "{Tab 3}"
 #HotIf
 
 ; Hunt and Peck — Alt+, hint overlay · Alt+. tray (hap CLI; disable in-app
