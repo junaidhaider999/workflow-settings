@@ -1,4 +1,3 @@
-
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 #MaxThreadsBuffer True
@@ -6,15 +5,14 @@
 InstallKeybdHook                                ; reliable GetKeyState("…","P") for Tab/Space/q
 
 SendMode "Input"
-SetKeyDelay   -1, -1
+SetKeyDelay -1, -1
 SetMouseDelay -1
-SetWinDelay   -1
+SetWinDelay -1
 SetDefaultMouseSpeed 0
-ListLines     False
-KeyHistory    0
+ListLines False
+KeyHistory 0
 ProcessSetPriority "High"
 SetCapsLockState "AlwaysOff"
-
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Config
@@ -31,18 +29,18 @@ SetCapsLockState "AlwaysOff"
 ; The MIN → CRUISE → FAST → MAX ladder is intentionally geometric-ish
 ; (1 → 8 → 22 → 40 ≈ ×8 ×2.75 ×1.8) so every tier feels like a genuine
 ; gear shift, not an incremental tweak.
-MOUSE_TICK_MS     := 10                         ; 100 Hz
-MOUSE_STATUS_MS   := 50                         ; HUD refresh
-MOUSE_STEP_MIN    := 1                          ; precise — sub-pixel feel at ramp start
+MOUSE_TICK_MS := 10                         ; 100 Hz
+MOUSE_STATUS_MS := 50                         ; HUD refresh
+MOUSE_STEP_MIN := 1                          ; precise — sub-pixel feel at ramp start
 MOUSE_STEP_CRUISE := 8                          ; no-mod ramp ceiling (distinct from FAST)
-MOUSE_STEP_FAST   := 22                         ; Space tier — clearly above cruise
-MOUSE_STEP_MAX    := 40                         ; Q turbo tier
-MOUSE_RAMP        := 14                         ; ~140 ms MIN → CRUISE (cosine-eased)
-MOUSE_TAP_SECS    := 0.25                       ; CapsLock+Tab: tap<this = latch, else hold
+MOUSE_STEP_FAST := 22                         ; Space tier — clearly above cruise
+MOUSE_STEP_MAX := 40                         ; Q turbo tier
+MOUSE_RAMP := 14                         ; ~140 ms MIN → CRUISE (cosine-eased)
+MOUSE_TAP_SECS := 0.25                       ; CapsLock+Tab: tap<this = latch, else hold
 
 ; Scroll / text navigation tuning.
-SCROLL_NORMAL := 1,  SCROLL_FAST := 5           ; wheel ticks
-VERT_BOOST    := 3                              ; lines jumped per Space+I/K
+SCROLL_NORMAL := 1, SCROLL_FAST := 5           ; wheel ticks
+VERT_BOOST := 3                              ; lines jumped per Space+I/K
 
 ; Window-history cap — oldest entries evicted first.
 WIN_HISTORY_MAX := 50
@@ -67,42 +65,40 @@ FLOAT_MAXIMIZE := false
 ;                          whole window bitmap and makes bright green look
 ;                          muddy/dark. Click-through uses WS_EX_TRANSPARENT
 ;                          (E0x20) only.
-GRID_KEYS         := ["q","w","e","a","s","d","z","x","c"]
-GRID_MIN_CELL_PX  := 35
-GRID_LABEL_BG     := "000000"
-GRID_LABEL_FG     := "00FF99"
+GRID_KEYS := ["q", "w", "e", "a", "s", "d", "z", "x", "c"]
+GRID_MIN_CELL_PX := 35
+GRID_LABEL_BG := "000000"
+GRID_LABEL_FG := "00FF99"
 
 ; Hunt and Peck (zsims/hunt-and-peck): `hap.exe` CLI (same as default Alt+;
 ; and Ctrl+; in the app). Bound here to Alt+, / Alt+. — set full path if
 ; `hap.exe` is not on PATH.
 HAP_EXE := "hap.exe"
 
-
 ; ═══════════════════════════════════════════════════════════════════════════
 ; State
 ; ═══════════════════════════════════════════════════════════════════════════
 
-mouseMode      := false
-mouseLatched   := false                         ; true once mouse mode was tap-latched
+mouseMode := false
+mouseLatched := false                         ; true once mouse mode was tap-latched
 mouseHoldTicks := 0                             ; ramp counter for MouseTick
-mouseDrag      := ""                            ; "" | "L" | "R"
+mouseDrag := ""                            ; "" | "L" | "R"
 
 ; Focus history — ordered oldest → newest. `winViewingId` is the walk
 ; cursor; deriving step counts from its index avoids off-by-one / dead-
 ; window glitches that a separate counter caused.
-winHistory     := []
-winViewingId   := 0
-lastFocusedId  := 0
+winHistory := []
+winViewingId := 0
+lastFocusedId := 0
 trackingPaused := false
 
 ; Grid navigation — `gridRectStack` is the zoom stack (bottom = full
 ; monitor, top = current cell). Doubles as the undo history for Backspace.
 ; `gridPool` holds nine reused label Guis (no per-zoom Destroy) so rapid
 ; zoom keys cannot interleave and stack duplicate overlays / leak letters.
-gridActive    := false
+gridActive := false
 gridRectStack := []
-gridPool      := []                             ; [{g,t}, …] built lazily
-
+gridPool := []                             ; [{g,t}, …] built lazily
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Mouse mode
@@ -131,17 +127,17 @@ gridPool      := []                             ; [{g,t}, …] built lazily
 MouseTier(ticks) {
     static PI := 3.14159265358979
     if GetKeyState("q", "P")
-        return { step: MOUSE_STEP_MAX,  tier: "🚀 TURBO" }
+        return { step: MOUSE_STEP_MAX, tier: "🚀 TURBO" }
     if GetKeyState("Space", "P")
         return { step: MOUSE_STEP_FAST, tier: "⚡ FAST" }
     if ticks = 0
         return { step: 0, tier: "○ idle" }
-    r     := ticks < MOUSE_RAMP ? ticks / MOUSE_RAMP : 1
+    r := ticks < MOUSE_RAMP ? ticks / MOUSE_RAMP : 1
     ratio := 0.5 * (1 - Cos(PI * r))
-    step  := MOUSE_STEP_MIN + Round((MOUSE_STEP_CRUISE - MOUSE_STEP_MIN) * ratio)
-    tier  := ticks < MOUSE_RAMP / 3 ? "· precise"
-           : ticks < MOUSE_RAMP     ? "◎ accel  "
-           :                          "◉ cruise "
+    step := MOUSE_STEP_MIN + Round((MOUSE_STEP_CRUISE - MOUSE_STEP_MIN) * ratio)
+    tier := ticks < MOUSE_RAMP / 3 ? "· precise"
+        : ticks < MOUSE_RAMP ? "◎ accel  "
+            : "◉ cruise "
     return { step: step, tier: tier }
 }
 
@@ -182,14 +178,14 @@ MouseDir() {
     dy := (GetKeyState("k", "P") ? 1 : 0) - (GetKeyState("i", "P") ? 1 : 0)
     switch dx "," dy {
         case "-1,-1": return "↖"
-        case  "0,-1": return "↑"
-        case  "1,-1": return "↗"
-        case "-1,0":  return "←"
-        case  "1,0":  return "→"
-        case "-1,1":  return "↙"
-        case  "0,1":  return "↓"
-        case  "1,1":  return "↘"
-        default:      return "·"
+        case "0,-1": return "↑"
+        case "1,-1": return "↗"
+        case "-1,0": return "←"
+        case "1,0": return "→"
+        case "-1,1": return "↙"
+        case "0,1": return "↓"
+        case "1,1": return "↘"
+        default: return "·"
     }
 }
 
@@ -199,10 +195,10 @@ MouseDir() {
 MouseStatus() {
     if !mouseMode
         return
-    t    := MouseTier(mouseHoldTicks)
+    t := MouseTier(mouseHoldTicks)
     mode := mouseLatched ? "LATCH" : "HOLD "
     drag := mouseDrag = "L" ? "  ◼ L-DRAG"
-         :  mouseDrag = "R" ? "  ◼ R-DRAG" : ""
+        : mouseDrag = "R" ? "  ◼ R-DRAG" : ""
     MouseGetPos &mx, &my
     ToolTip Format(
         "🖱 {1}  │  {2}  │  {3} px  │  {4}`n[{5}]{6}",
@@ -213,11 +209,11 @@ MouseStatus() {
 
 EnterMouseMode(latched := false) {
     global mouseMode, mouseLatched, mouseHoldTicks, mouseDrag
-    mouseMode      := true
-    mouseLatched   := latched
+    mouseMode := true
+    mouseLatched := latched
     mouseHoldTicks := 0
-    mouseDrag      := ""
-    SetTimer MouseTick,   MOUSE_TICK_MS
+    mouseDrag := ""
+    SetTimer MouseTick, MOUSE_TICK_MS
     SetTimer MouseStatus, MOUSE_STATUS_MS
     MouseStatus()                               ; render immediately; don't wait for the first tick
 }
@@ -226,15 +222,15 @@ EnterMouseMode(latched := false) {
 ; stuck mouse button (e.g. Tab released mid-drag in HOLD mode).
 ExitMouseMode() {
     global mouseMode, mouseLatched, mouseDrag
-    SetTimer MouseTick,   0
+    SetTimer MouseTick, 0
     SetTimer MouseStatus, 0
     if mouseDrag = "L"
         Click "Left Up"
     else if mouseDrag = "R"
         Click "Right Up"
-    mouseMode    := false
+    mouseMode := false
     mouseLatched := false
-    mouseDrag    := ""
+    mouseDrag := ""
     ToolTip , , , 1
 }
 
@@ -247,7 +243,7 @@ DragHold(btn, keyName) {
     mouseDrag := btn
     Click (btn = "L" ? "Left Down" : "Right Down")
     KeyWait keyName
-    Click (btn = "L" ? "Left Up"   : "Right Up")
+    Click (btn = "L" ? "Left Up" : "Right Up")
     mouseDrag := ""
 }
 
@@ -270,26 +266,25 @@ CapsLock & Tab:: {
 
 ; Absorb Q while Tab is held so `CapsLock+Tab+Q` (MAX modifier) doesn't
 ; leak to `CapsLock+Q` (copy). Tab-prefixed combos win over CapsLock-ones.
-~Tab & q::return
+~Tab & q:: return
 
 ; Solo layer — fires on bare keypress while mouseMode is true. This is what
 ; makes LATCH usable after CapsLock is released. Custom CapsLock combos
 ; still win when CapsLock IS held, so both workflows coexist.
 #HotIf mouseMode
-j::MouseTick()
-k::MouseTick()
-l::MouseTick()
-i::MouseTick()
-u::Scroll("Up")
-o::Scroll("Down")
-`;::DragHold("L", ";")
-'::DragHold("R", "'")
-Space::return                                   ; absorb — read physically by MouseTier
-q::return                                       ; absorb — read physically by MouseTier
-CapsLock & q::return                            ; override default "copy" while in mouse mode
-Escape::ExitMouseMode()
+j:: MouseTick()
+k:: MouseTick()
+l:: MouseTick()
+i:: MouseTick()
+u:: Scroll("Up")
+o:: Scroll("Down")
+`;:: DragHold("L", ";")
+':: DragHold("R", "'")
+Space:: return                                   ; absorb — read physically by MouseTier
+q:: return                                       ; absorb — read physically by MouseTier
+CapsLock & q:: return                            ; override default "copy" while in mouse mode
+Escape:: ExitMouseMode()
 #HotIf
-
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Grid navigation  (CapsLock + / — "keynav" style click-anywhere)
@@ -362,12 +357,12 @@ GridHud() {
     global gridActive, gridRectStack, GRID_MIN_CELL_PX
     if !gridActive || !gridRectStack.Length
         return
-    r    := gridRectStack[gridRectStack.Length]
-    lvl  := gridRectStack.Length
-    cw   := Round(r.w / 3)
-    ch   := Round(r.h / 3)
-    cx   := Round(r.x + r.w / 2)
-    cy   := Round(r.y + r.h / 2)
+    r := gridRectStack[gridRectStack.Length]
+    lvl := gridRectStack.Length
+    cw := Round(r.w / 3)
+    ch := Round(r.h / 3)
+    cx := Round(r.x + r.w / 2)
+    cy := Round(r.y + r.h / 2)
     auto := (cw < GRID_MIN_CELL_PX || ch < GRID_MIN_CELL_PX)
     ; Use mon* names — AHK vars are case-insensitive: &R would clobber `r` (rect).
     MonitorGetWorkArea(1, &monL, &monT, &monR, &monB)
@@ -387,18 +382,18 @@ RenderGrid() {
     global gridRectStack, gridPool, GRID_KEYS, GRID_LABEL_BG, GRID_LABEL_FG
     ClearGridOverlay()
     EnsureGridPool()
-    r      := gridRectStack[gridRectStack.Length]
-    cellW  := r.w / 3
-    cellH  := r.h / 3
-    pad    := Max(4, Min(18, Min(cellW, cellH) * 0.12))
+    r := gridRectStack[gridRectStack.Length]
+    cellW := r.w / 3
+    cellH := r.h / 3
+    pad := Max(4, Min(18, Min(cellW, cellH) * 0.12))
     labelW := Round(Min(150, cellW - pad * 2))
-    labelH := Round(Min(96,  cellH - pad * 2))
+    labelH := Round(Min(96, cellH - pad * 2))
     fontSz := Round(Max(12, Min(labelH * 0.55, cellW * 0.32)))
     for i, key in GRID_KEYS {
         row := (i - 1) // 3
         col := Mod(i - 1, 3)
-        cx  := r.x + col * cellW + cellW / 2
-        cy  := r.y + row * cellH + cellH / 2
+        cx := r.x + col * cellW + cellW / 2
+        cy := r.y + row * cellH + cellH / 2
         item := gridPool[i]
         g := item.g
         t := item.t
@@ -423,7 +418,7 @@ StartGridNav() {
     }
     Critical "On"
     try {
-        gridActive    := true
+        gridActive := true
         gridRectStack := [ActiveMonitorRect()]
         RenderGrid()
     } finally {
@@ -437,7 +432,7 @@ EndGridNav() {
     try {
         ClearGridOverlay()
         ToolTip , , , 3
-        gridActive    := false
+        gridActive := false
         gridRectStack := []
     } finally {
         Critical "Off"
@@ -448,7 +443,7 @@ GridZoom(keyIdx) {
     global gridRectStack, GRID_MIN_CELL_PX
     Critical "On"
     try {
-        r   := gridRectStack[gridRectStack.Length]
+        r := gridRectStack[gridRectStack.Length]
         row := (keyIdx - 1) // 3
         col := Mod(keyIdx - 1, 3)
         next := {
@@ -487,7 +482,7 @@ GridClick(btn) {
     global gridRectStack
     Critical "On"
     try {
-        r  := gridRectStack[gridRectStack.Length]
+        r := gridRectStack[gridRectStack.Length]
         cx := Round(r.x + r.w / 2)
         cy := Round(r.y + r.h / 2)
         EndGridNav()
@@ -502,7 +497,7 @@ GridClick(btn) {
     }
 }
 
-CapsLock & /::StartGridNav()
+CapsLock & /:: StartGridNav()
 
 ; Grid-mode key layer. Zoom keys are double-bound (bare + CapsLock-combo)
 ; so the workflow works whether or not the user has released CapsLock after
@@ -511,37 +506,42 @@ CapsLock & /::StartGridNav()
 ; whole point of grid mode is that you don't have to care which modifiers
 ; you're still holding from the trigger chord.
 #HotIf gridActive
-q::GridZoom(1)
-w::GridZoom(2)
-e::GridZoom(3)
-a::GridZoom(4)
-s::GridZoom(5)
-d::GridZoom(6)
-z::GridZoom(7)
-x::GridZoom(8)
-c::GridZoom(9)
-CapsLock & q::GridZoom(1)
-CapsLock & w::GridZoom(2)
-CapsLock & e::GridZoom(3)
-CapsLock & a::GridZoom(4)
-CapsLock & s::GridZoom(5)
-CapsLock & d::GridZoom(6)
-CapsLock & z::GridZoom(7)
-CapsLock & x::GridZoom(8)
-CapsLock & c::GridZoom(9)
-Space::return                                   ; absorb — same slot as mouse Space tier
-vkBA::GridClick("L")
-'::GridClick("R")
-CapsLock & vkBA::GridClick("L")
-CapsLock & '::GridClick("R")
-Backspace::GridUndoZoom()
-Escape::EndGridNav()
+q:: GridZoom(1)
+w:: GridZoom(2)
+e:: GridZoom(3)
+a:: GridZoom(4)
+s:: GridZoom(5)
+d:: GridZoom(6)
+z:: GridZoom(7)
+x:: GridZoom(8)
+c:: GridZoom(9)
+CapsLock & q:: GridZoom(1)
+CapsLock & w:: GridZoom(2)
+CapsLock & e:: GridZoom(3)
+CapsLock & a:: GridZoom(4)
+CapsLock & s:: GridZoom(5)
+CapsLock & d:: GridZoom(6)
+CapsLock & z:: GridZoom(7)
+CapsLock & x:: GridZoom(8)
+CapsLock & c:: GridZoom(9)
+Space:: return                                   ; absorb — same slot as mouse Space tier
+vkBA:: GridClick("L")
+':: GridClick("R")
+CapsLock & vkBA:: GridClick("L")
+CapsLock & ':: GridClick("R")
+Backspace:: GridUndoZoom()
+Escape:: EndGridNav()
 #HotIf
-
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
 ; ═══════════════════════════════════════════════════════════════════════════
+;   CapsLock + [ / ]    Home / End   (moved from h / ;)
+;   CapsLock + h       absorbed      (Home was here; avoids leaking "H")
+;   CapsLock + ; / '    outside mouse/grid: left / right click at cursor;
+;                        in mouse mode: same as bare ; / ' (L/R drag); in
+;                        grid: centre L/R click (same vkBA / ' as grid layer)
+;   CapsLock + LShift / \   Ctrl+Shift+P  (command palette)
 
 ; In mouse mode: trigger motion immediately (zero-latency first move); the
 ; timer then continues the ramp. Outside mouse mode: send the arrow,
@@ -574,23 +574,25 @@ Scroll(dir) {
 ; explicit hotkey absorbs the bare press and re-asserts the off state as
 ; insurance. Doesn't fire when a modifier is held, so `LAlt & CapsLock`
 ; (Escape) still works.
-CapsLock::SetCapsLockState "AlwaysOff"
+CapsLock:: SetCapsLockState "AlwaysOff"
 
 ; Space / D absorbed as pure modifiers (read via GetKeyState elsewhere).
-CapsLock & Space::return
-CapsLock & d::return
+CapsLock & Space:: return
+CapsLock & d:: return
 
-CapsLock & j::Navigate("Left")
-CapsLock & l::Navigate("Right")
-CapsLock & i::Navigate("Up")
-CapsLock & k::Navigate("Down")
+CapsLock & j:: Navigate("Left")
+CapsLock & l:: Navigate("Right")
+CapsLock & i:: Navigate("Up")
+CapsLock & k:: Navigate("Down")
+CapsLock & h:: return                            ; Home moved to [ — swallow bare Caps+h
 
-CapsLock & h::Send "{Home}"
-CapsLock & ,::Send "{PgUp}"
-CapsLock & .::Send "{PgDn}"
+CapsLock & [:: Send "{Home}"
+CapsLock & ]:: Send "{End}"
+CapsLock & ,:: Send "{PgUp}"
+CapsLock & .:: Send "{PgDn}"
 
-CapsLock & u::Scroll("Up")
-CapsLock & o::Scroll("Down")
+CapsLock & u:: Scroll("Up")
+CapsLock & o:: Scroll("Down")
 CapsLock & `;:: {
     global gridActive, mouseMode
     if mouseMode
@@ -598,7 +600,7 @@ CapsLock & `;:: {
     else if gridActive
         GridClick("L")
     else
-        Send "{End}"
+        Click
 }
 CapsLock & ':: {
     global gridActive, mouseMode
@@ -607,11 +609,12 @@ CapsLock & ':: {
     else if gridActive
         GridClick("R")
     else
-        Send "{Blind}^+p"                     ; command palette (Ctrl+Shift+P) — global
+        Click "Right"
 }
 
-CapsLock & Enter::Send "{AppsKey}"
-
+CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS Code)
+CapsLock & \:: Send "{Blind}^+p"
+CapsLock & Enter:: return                      ; absorb (no AppsKey)
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Tab / window / element switching  +  focus history
@@ -724,7 +727,7 @@ WalkHistory(step) {
             trackingPaused := true
             try WinActivate "ahk_id " id
             lastFocusedId := id
-            winViewingId  := id
+            winViewingId := id
             SetTimer ResumeTracking, -250
             return idx
         }
@@ -752,29 +755,28 @@ GoForwardWindowHistory() {
         Notify("▶ already at current")
         return
     }
-    id    := winHistory[idx]
+    id := winHistory[idx]
     steps := winHistory.Length - idx
     Notify((steps = 0 ? "▶ current: " : "▶ back " steps ": ") HistoryTitle(id))
 }
 
 ; Bare `RAlt::` often never fires when the OS/driver holds LCtrl first (AltGr).
 ; `*RAlt` still runs in that case.
-*RAlt::TaskViewHotkey()
+*RAlt:: TaskViewHotkey()
 CapsLock & RAlt:: ShellCombo("LAlt", "Tab")
 
 ; Reverse UI tab order (Shift+Tab). Hold physical P, press Tab — avoids making
 ; `p` a prefix key (would fight other bindings and normal typing).
 #HotIf GetKeyState("p", "P") && !gridActive && !mouseMode
-Tab::Send "+{Tab}"
+Tab:: Send "+{Tab}"
 #HotIf
 
 ; Hunt and Peck — Alt+, hint overlay · Alt+. tray (hap CLI; disable in-app
 ; Alt+; / Ctrl+; if you want no duplicate triggers).
-!,::Hap("/hint")
-!.::Hap("/tray")
-CapsLock & m::    Send "^{Tab}"
-CapsLock & n::    Send "^+{Tab}"
-
+!,:: Hap("/hint")
+!.:: Hap("/tray")
+CapsLock & m:: Send "^{Tab}"
+CapsLock & n:: Send "^+{Tab}"
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Komorebi  (Win-key leader — prefix style, like CapsLock)
@@ -848,7 +850,7 @@ ForceMaximize(id) {
     if !WinExist("ahk_id " id)
         return
     try {
-        WinRestore  "ahk_id " id
+        WinRestore "ahk_id " id
         WinMaximize "ahk_id " id
     }
 }
@@ -864,7 +866,7 @@ ForceMaximize(id) {
 ;     window re-tiles it.
 KomorebiTouch(sub, icon, verb) {
     taskView := WinActive("ahk_class MultitaskingViewFrame")
-             || WinActive("ahk_class XamlExplorerHostIslandWindow")
+    || WinActive("ahk_class XamlExplorerHostIslandWindow")
     if taskView {
         Send "{Enter}"
         WinWaitNotActive "ahk_id " taskView, , 0.5
@@ -895,72 +897,69 @@ KomorebiNotifyStop(*) {
 
 ; Swallow Win+Q in the chord so Quick Assist / Game Bar does not fire; KomoDir
 ; still reads Q via GetKeyState.
-LWin & q::return
-LWin & j::KomoDir("left")
-LWin & k::KomoDir("down")
-LWin & o::KomoDir("right")
-LWin & i::KomoDir("up")
-LWin & n::GoBackWindowHistory()
-LWin & m::GoForwardWindowHistory()
-LWin & ,::  Komorebi("resize-axis horizontal decrease")
-LWin & .::  Komorebi("resize-axis horizontal increase")
+LWin & q:: return
+LWin & j:: KomoDir("left")
+LWin & k:: KomoDir("down")
+LWin & o:: KomoDir("right")
+LWin & i:: KomoDir("up")
+LWin & n:: GoBackWindowHistory()
+LWin & m:: GoForwardWindowHistory()
+LWin & ,:: Komorebi("resize-axis horizontal decrease")
+LWin & .:: Komorebi("resize-axis horizontal increase")
 LWin & vkBA:: Komorebi("resize-axis vertical decrease")
 LWin & vkDE:: Komorebi("resize-axis vertical increase")
-LWin & \::  Komorebi("cycle-layout next")
-LWin & /::  Komorebi("retile")
-LWin & [::KomorebiTouch("manage",       "▣", "Tiled")
-LWin & ]::KomorebiTouch("toggle-float", "▢", "Floated")
-LWin & Enter::KomorebiNotifyStart
-LWin & RShift::KomorebiNotifyStop
-LWin::return                                  ; swallow lone LWin — no Start / Copilot tap
+LWin & \:: Komorebi("cycle-layout next")
+LWin & /:: Komorebi("retile")
+LWin & [:: KomorebiTouch("manage", "▣", "Tiled")
+LWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
+LWin & Enter:: KomorebiNotifyStart
+LWin & RShift:: KomorebiNotifyStop
+LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
 
-RWin & q::return
-RWin & j::KomoDir("left")
-RWin & k::KomoDir("down")
-RWin & o::KomoDir("right")
-RWin & i::KomoDir("up")
-RWin & n::GoBackWindowHistory()
-RWin & m::GoForwardWindowHistory()
-RWin & ,::  Komorebi("resize-axis horizontal decrease")
-RWin & .::  Komorebi("resize-axis horizontal increase")
+RWin & q:: return
+RWin & j:: KomoDir("left")
+RWin & k:: KomoDir("down")
+RWin & o:: KomoDir("right")
+RWin & i:: KomoDir("up")
+RWin & n:: GoBackWindowHistory()
+RWin & m:: GoForwardWindowHistory()
+RWin & ,:: Komorebi("resize-axis horizontal decrease")
+RWin & .:: Komorebi("resize-axis horizontal increase")
 RWin & vkBA:: Komorebi("resize-axis vertical decrease")
 RWin & vkDE:: Komorebi("resize-axis vertical increase")
-RWin & \::  Komorebi("cycle-layout next")
-RWin & /::  Komorebi("retile")
-RWin & [::KomorebiTouch("manage",       "▣", "Tiled")
-RWin & ]::KomorebiTouch("toggle-float", "▢", "Floated")
-RWin & Enter::KomorebiNotifyStart
-RWin & RShift::KomorebiNotifyStop
-RWin::return                                  ; swallow lone RWin — same as LWin
-
+RWin & \:: Komorebi("cycle-layout next")
+RWin & /:: Komorebi("retile")
+RWin & [:: KomorebiTouch("manage", "▣", "Tiled")
+RWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
+RWin & Enter:: KomorebiNotifyStart
+RWin & RShift:: KomorebiNotifyStop
+RWin:: return                                  ; swallow lone RWin — same as LWin
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Window management
 ; ═══════════════════════════════════════════════════════════════════════════
 
-CapsLock & -::    WinMinimize "A"
-CapsLock & g::    WinMaximize "A"
-CapsLock & c::    WinClose    "A"
-CapsLock & b::    Send "#d"
+CapsLock & -:: WinMinimize "A"
+CapsLock & g:: WinMaximize "A"
+CapsLock & c:: WinClose "A"
+CapsLock & b:: Send "#d"
 LAlt & CapsLock:: Send "{Escape}"
-
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Editing
 ; ═══════════════════════════════════════════════════════════════════════════
 
-CapsLock & q::        Send "^c"
-CapsLock & w::        Send "^x"
-CapsLock & e::        Send "^vo"
-CapsLock & a::        Send "^a"
-CapsLock & s::        Send "^s"
-CapsLock & f::        Send "^f"
-CapsLock & x::        Send "{Delete}"
-CapsLock & Backspace::Send "^{Backspace}"
-CapsLock & Del::      Send "^{Delete}"
-LAlt & n::            Send "^z"
-LAlt & m::            Send "^y"
-
+CapsLock & q:: Send "^c"
+CapsLock & w:: Send "^x"
+CapsLock & e:: Send "^vo"
+CapsLock & a:: Send "^a"
+CapsLock & s:: Send "^s"
+CapsLock & f:: Send "^f"
+CapsLock & x:: Send "{Delete}"
+CapsLock & Backspace:: Send "^{Backspace}"
+CapsLock & Del:: Send "^{Delete}"
+LAlt & n:: Send "^z"
+LAlt & m:: Send "^y"
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Browser
@@ -970,28 +969,27 @@ LAlt & m::            Send "^y"
 ;   CapsLock + r/t/y     refresh / close tab / new tab
 ;   LAlt + p/i/u/o      back / forward / move tab (unchanged)
 
-CapsLock & 1::Send "^1"
-CapsLock & 2::Send "^2"
-CapsLock & 3::Send "^3"
-CapsLock & 4::Send "^4"
-CapsLock & 5::Send "^5"
-CapsLock & 6::Send "^6"
-CapsLock & 7::Send "^7"
-CapsLock & 8::Send "^8"
-CapsLock & 9::Send "^9"
-CapsLock & 0::Send "^0"
+CapsLock & 1:: Send "^1"
+CapsLock & 2:: Send "^2"
+CapsLock & 3:: Send "^3"
+CapsLock & 4:: Send "^4"
+CapsLock & 5:: Send "^5"
+CapsLock & 6:: Send "^6"
+CapsLock & 7:: Send "^7"
+CapsLock & 8:: Send "^8"
+CapsLock & 9:: Send "^9"
+CapsLock & 0:: Send "^0"
 
-CapsLock & r::Send "^r"
-CapsLock & t::Send "^w"
-CapsLock & y::Send "^t"
-LAlt & p::    Send "!{Left}"
-LAlt & i::    Send "!{Right}"
-LAlt & u::    Send "^+{PgUp}"
-LAlt & o::    Send "^+{PgDn}"
-
+CapsLock & r:: Send "^r"
+CapsLock & t:: Send "^w"
+CapsLock & y:: Send "^t"
+LAlt & p:: Send "!{Left}"
+LAlt & i:: Send "!{Right}"
+LAlt & u:: Send "^+{PgUp}"
+LAlt & o:: Send "^+{PgDn}"
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Screenshot
 ; ═══════════════════════════════════════════════════════════════════════════
 
-CapsLock & p::Send "#{PrintScreen}"
+CapsLock & p:: Send "#{PrintScreen}"
