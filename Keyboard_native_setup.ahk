@@ -537,7 +537,7 @@ Escape:: EndGridNav()
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
 ; ═══════════════════════════════════════════════════════════════════════════
 ;   CapsLock + [ / ]    Home / End   (moved from h / ;)
-;   CapsLock + h       absorbed      (Home was here; avoids leaking "H")
+;   CapsLock + h       WinMinimize active   (Home is [ / ])
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
 ;                        menu). Mouse/grid: unchanged (drag / grid L/R).
 ;   CapsLock + LShift / \   Ctrl+Shift+P  (command palette)
@@ -583,7 +583,7 @@ CapsLock & j:: Navigate("Left")
 CapsLock & l:: Navigate("Right")
 CapsLock & i:: Navigate("Up")
 CapsLock & k:: Navigate("Down")
-CapsLock & h:: return                            ; Home moved to [ — swallow bare Caps+h
+CapsLock & h:: WinMinimize "A"
 
 CapsLock & [:: Send "{Home}"
 CapsLock & ]:: Send "{End}"
@@ -960,7 +960,6 @@ RWin:: return                                  ; swallow lone RWin — same as L
 ; Window management
 ; ═══════════════════════════════════════════════════════════════════════════
 
-CapsLock & -:: WinMinimize "A"
 CapsLock & g:: WinMaximize "A"
 CapsLock & c:: WinClose "A"
 CapsLock & b:: Send "#d"
@@ -970,6 +969,8 @@ LAlt & CapsLock:: Send "{Escape}"
 ; Editing
 ; ═══════════════════════════════════════════════════════════════════════════
 
+CapsLock & -:: Send "^z"
+CapsLock & =:: Send "^y"
 CapsLock & q:: Send "^c"
 CapsLock & w:: Send "^x"
 CapsLock & e:: Send "^v"
@@ -979,8 +980,6 @@ CapsLock & f:: Send "^f"
 CapsLock & x:: Send "{Delete}"
 CapsLock & Backspace:: Send "^{Backspace}"
 CapsLock & Del:: Send "^{Delete}"
-LAlt & n:: Send "^z"
-LAlt & m:: Send "^y"
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Browser
