@@ -1,7 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 #MaxThreadsBuffer True
-#MaxThreadsPerHotkey 2
+#MaxThreadsPerHotkey 1
 InstallKeybdHook                                ; reliable GetKeyState("…","P") for Tab/Space/q
 
 SendMode "Input"
@@ -266,24 +266,28 @@ CapsLock & Tab:: {
 
 ; Absorb Q while Tab is held so `CapsLock+Tab+Q` (MAX modifier) doesn't
 ; leak to `CapsLock+Q` (copy). Tab-prefixed combos win over CapsLock-ones.
+; `~` prefix keeps Tab as a pass-through so bare Tab has ZERO delay — the
+; Tab character during CapsLock+Tab+Q is harmless because Tab is already
+; consumed by the CapsLock+Tab mouse-mode entry chord.
 ~Tab & q:: return
 
 ; Solo layer — fires on bare keypress while mouseMode is true. This is what
 ; makes LATCH usable after CapsLock is released. Custom CapsLock combos
 ; still win when CapsLock IS held, so both workflows coexist.
 #HotIf mouseMode
-j:: MouseTick()
-k:: MouseTick()
-l:: MouseTick()
-i:: MouseTick()
-u:: Scroll("Up")
-o:: Scroll("Down")
-`;:: DragHold("L", ";")
-':: DragHold("R", "'")
-Space:: return                                   ; absorb — read physically by MouseTier
-q:: return                                       ; absorb — read physically by MouseTier
+$j:: MouseTick()
+$k:: MouseTick()
+$l:: MouseTick()
+$i:: MouseTick()
+$u:: Scroll("Up")
+$o:: Scroll("Down")
+$`;:: DragHold("L", ";")
+$':: DragHold("R", "'")
+$Space:: return                                  ; absorb — read physically by MouseTier
+$q:: return                                      ; absorb — read physically by MouseTier
+$d:: return                                      ; absorb — read physically by Navigate() Shift modifier
 CapsLock & q:: return                            ; override default "copy" while in mouse mode
-Escape:: ExitMouseMode()
+$Escape:: ExitMouseMode()
 #HotIf
 
 ; ═══════════════════════════════════════════════════════════════════════════
@@ -506,15 +510,15 @@ CapsLock & /:: StartGridNav()
 ; whole point of grid mode is that you don't have to care which modifiers
 ; you're still holding from the trigger chord.
 #HotIf gridActive
-q:: GridZoom(1)
-w:: GridZoom(2)
-e:: GridZoom(3)
-a:: GridZoom(4)
-s:: GridZoom(5)
-d:: GridZoom(6)
-z:: GridZoom(7)
-x:: GridZoom(8)
-c:: GridZoom(9)
+$q:: GridZoom(1)
+$w:: GridZoom(2)
+$e:: GridZoom(3)
+$a:: GridZoom(4)
+$s:: GridZoom(5)
+$d:: GridZoom(6)
+$z:: GridZoom(7)
+$x:: GridZoom(8)
+$c:: GridZoom(9)
 CapsLock & q:: GridZoom(1)
 CapsLock & w:: GridZoom(2)
 CapsLock & e:: GridZoom(3)
@@ -524,13 +528,13 @@ CapsLock & d:: GridZoom(6)
 CapsLock & z:: GridZoom(7)
 CapsLock & x:: GridZoom(8)
 CapsLock & c:: GridZoom(9)
-Space:: return                                   ; absorb — same slot as mouse Space tier
-vkBA:: GridClick("L")
-':: GridClick("R")
+$Space:: return                                  ; absorb — same slot as mouse Space tier
+$vkBA:: GridClick("L")
+$':: GridClick("R")
 CapsLock & vkBA:: GridClick("L")
 CapsLock & ':: GridClick("R")
-Backspace:: GridUndoZoom()
-Escape:: EndGridNav()
+$Backspace:: GridUndoZoom()
+$Escape:: EndGridNav()
 #HotIf
 
 ; ═══════════════════════════════════════════════════════════════════════════
@@ -794,19 +798,29 @@ GoForwardWindowHistory() {
 }
 
 ; Bare `RAlt::` often never fires when the OS/driver holds LCtrl first (AltGr).
-; `*RAlt` still runs in that case.
+; `*` wildcard ensures it still runs even with phantom LCtrl (AltGr stack).
 *RAlt:: TaskViewHotkey()
 CapsLock & RAlt:: ShellCombo("LAlt", "Tab")
 
-; Reverse UI tab order (Shift+Tab). Hold physical ; (vkBA), press Tab — same
-; GetKeyState pattern as the old P+Tab (no prefix-key delay).
+; Reverse UI tab order (Shift+Tab). Hold physical ; (vkBA), press Tab.
+; GetKeyState polling — `;` is NOT a prefix key, so normal `;` typing has
+; zero delay (key-down fires instantly). Trade-off: a stray `;` character
+; reaches the app before Tab fires; we counteract it with a Backspace that
+; erases the leaked `;` before sending Shift+Tab.
 #HotIf GetKeyState("vkBA", "P") && !gridActive && !mouseMode
-Tab:: Send "+{Tab}"
+Tab:: {
+    SendInput "{Backspace}"
+    Send "+{Tab}"
+}
 #HotIf
 
-; Tab ×3. Hold physical ' (vkDE), press Tab — same pattern (no `;` prefix).
+; Tab ×3. Hold physical ' (vkDE), press Tab — same GetKeyState pattern.
+; Same Backspace approach to clean up the stray ' character.
 #HotIf GetKeyState("vkDE", "P") && !gridActive && !mouseMode
-Tab:: SendInput "{Tab 3}"
+Tab:: {
+    SendInput "{Backspace}"
+    SendInput "{Tab 3}"
+}
 #HotIf
 
 ; Hunt and Peck — Alt+, / Alt+. (hint / tray; disable in-app Alt+; / Ctrl+;
