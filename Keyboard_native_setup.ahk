@@ -14,9 +14,7 @@ KeyHistory 0
 ProcessSetPriority "High"
 SetCapsLockState "AlwaysOff"
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Config
-; ═══════════════════════════════════════════════════════════════════════════
 
 ; Mouse mode — 100-Hz poller on IJKL. Four distinct speed tiers:
 ;   no mod  : cosine S-curve ramp MIN → CRUISE over MOUSE_RAMP ticks.
@@ -75,9 +73,7 @@ GRID_LABEL_FG := "00FF99"
 ; `hap.exe` is not on PATH.
 HAP_EXE := "hap.exe"
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; State
-; ═══════════════════════════════════════════════════════════════════════════
 
 mouseMode := false
 mouseLatched := false                         ; true once mouse mode was tap-latched
@@ -100,9 +96,7 @@ gridActive := false
 gridRectStack := []
 gridPool := []                             ; [{g,t}, …] built lazily
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Mouse mode
-; ═══════════════════════════════════════════════════════════════════════════
 ;   Entry / exit       CapsLock+Tab    tap<TAP_SECS = LATCH, else HOLD
 ;   Quick exit         Escape          (solo layer; always available)
 ;   Motion             I J K L         100-Hz poller; diagonals for free
@@ -247,7 +241,7 @@ DragHold(btn, keyName) {
     mouseDrag := ""
 }
 
-; ── Mouse-mode hotkeys ────────────────────────────────────────────────────
+; Mouse-mode hotkeys
 CapsLock & Tab:: {
     global mouseLatched
     if mouseMode {
@@ -290,9 +284,7 @@ CapsLock & q:: return                            ; override default "copy" while
 $Escape:: ExitMouseMode()
 #HotIf
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Grid navigation  (CapsLock + / — "keynav" style click-anywhere)
-; ═══════════════════════════════════════════════════════════════════════════
 ;   Activate           CapsLock + /     overlay opens on active monitor
 ;   Zoom               q w e            top row
 ;                      a s d            middle row
@@ -537,9 +529,7 @@ $Backspace:: GridUndoZoom()
 $Escape:: EndGridNav()
 #HotIf
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
-; ═══════════════════════════════════════════════════════════════════════════
 ;   CapsLock + [ / ]    Home / End   (moved from h / ;)
 ;   CapsLock + h       WinMinimize active   (Home is [ / ])
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
@@ -619,7 +609,7 @@ CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS C
 CapsLock & \:: Send "{Blind}^+p"
 CapsLock & Enter:: return                      ; spare — see “Chord ideas” below
 
-; ── Chord ideas (unbound or absorb-only; pick what you use) ────────────────
+; Chord ideas (unbound or absorb-only; pick what you use)
 ;   CapsLock + Enter     e.g. Win+Shift+S (Snip), Win+V (clipboard), Win+.
 ;                        (emoji), Win+Alt+R (Record — Win11), or Run dialog
 ;   CapsLock + RShift    (currently unused) e.g. Win+L lock, Win+R run,
@@ -635,9 +625,7 @@ CapsLock & Enter:: return                      ; spare — see “Chord ideas”
 ;                        is the OS default — remap only if you need Shift+Alt+Tab
 ;                        or a different switcher (PowerToys) on another chord
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Tab / window / element switching  +  focus history
-; ═══════════════════════════════════════════════════════════════════════════
 ;   Win + N / M        walk BACK / FORWARD through focus history (non-cyclic)
 ;                        (N back / M forward — not related to CapsLock+m/n)
 ;   *RAlt              Win+Tab  (Task View) — `*` wildcard so it still runs if
@@ -830,9 +818,7 @@ Tab:: {
 CapsLock & m:: Send "^{Tab}"
 CapsLock & n:: Send "^+{Tab}"
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Komorebi  (Win-key leader — prefix style, like CapsLock)
-; ═══════════════════════════════════════════════════════════════════════════
 ;   LWin/RWin + J/K/O/I      focus   left / down / right / up
 ;   LWin/RWin + Q + …        move    (hold Q + direction)
 ;   LWin/RWin + , / .        resize  horizontal -/+
@@ -934,7 +920,7 @@ KomorebiTouch(sub, icon, verb) {
     Notify(icon " " verb ": " HistoryTitle(id))
 }
 
-; ── Komorebi hotkeys: LWin and RWin each as prefix (mirrors CapsLock & …).
+; Komorebi hotkeys: LWin and RWin each as prefix (mirrors CapsLock & …).
 ;     All LWin & … before LWin:: ; all RWin & … before RWin:: — required for
 ;     correct prefix-key resolution. Lone Win tap → return (no Start menu).
 
@@ -987,7 +973,7 @@ RWin & Enter:: KomorebiNotifyStart
 RWin & RShift:: KomorebiNotifyStop
 RWin:: return                                  ; swallow lone RWin — same as LWin
 
-; ── LAlt leader (Escape + browser). Hunt-and-Peck is `!,::` / `!.::` above.
+; LAlt leader (Escape + browser). Hunt-and-Peck is `!,::` / `!.::` above.
 ;     LAlt+n = strip start, LAlt+m = strip end (BrowserTabToStrip*).
 LAlt & CapsLock:: Send "{Escape}"
 LAlt & p:: Send "!{Left}"
@@ -997,17 +983,13 @@ LAlt & o:: Send "^+{PgDn}"
 LAlt & n:: BrowserTabToStripStart()
 LAlt & m:: BrowserTabToStripEnd()
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Window management
-; ═══════════════════════════════════════════════════════════════════════════
 
 CapsLock & g:: WinMaximize "A"
 CapsLock & c:: WinClose "A"
 CapsLock & b:: Send "#d"
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Editing
-; ═══════════════════════════════════════════════════════════════════════════
 
 CapsLock & -:: Send "^z"
 CapsLock & =:: Send "^y"
@@ -1021,9 +1003,7 @@ CapsLock & x:: Send "{Delete}"
 CapsLock & Backspace:: Send "^{Backspace}"
 CapsLock & Del:: Send "^{Delete}"
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Browser
-; ═══════════════════════════════════════════════════════════════════════════
 ;   CapsLock + 1 … 0     Ctrl+1 … Ctrl+0  (Chrome/Edge: jump to tab 1–8, 9=last
 ;                        tab, 0=reset zoom — same as native browser shortcuts)
 ;   CapsLock + r/t/y     refresh / close tab / new tab
@@ -1044,8 +1024,6 @@ CapsLock & r:: Send "^r"
 CapsLock & t:: Send "^w"
 CapsLock & y:: Send "^t"
 
-; ═══════════════════════════════════════════════════════════════════════════
 ; Screenshot
-; ═══════════════════════════════════════════════════════════════════════════
 
 CapsLock & p:: Send "#{PrintScreen}"
