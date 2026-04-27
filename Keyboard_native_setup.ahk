@@ -635,8 +635,7 @@ CapsLock & Enter:: return                      ; spare — see “Chord ideas”
 ; Tab / window / element switching  +  focus history
 ; ═══════════════════════════════════════════════════════════════════════════
 ;   Win + N / M        walk BACK / FORWARD through focus history (non-cyclic)
-;                        (same idea as CapsLock+n/m for prev/next tab: N back,
-;                        M forward; LWin or RWin — defined with other Win chords)
+;                        (N back / M forward — not related to CapsLock+m/n)
 ;   *RAlt              Win+Tab  (Task View) — `*` wildcard so it still runs if
 ;                        the driver holds LCtrl before RAlt (see AltGr note:
 ;                        https://www.autohotkey.com/docs/v2/Hotkeys.htm#AltGr ).
@@ -647,6 +646,7 @@ CapsLock & Enter:: return                      ; spare — see “Chord ideas”
 ;   ; (held) + Tab     Shift+Tab (reverse element — same as old LAlt+Tab)
 ;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
+;   LAlt + n / m       move tab to start / end of bar (repeated ^+PgUp / PgDn)
 ;   CapsLock + 1…0     Ctrl+1…0  (jump to tab by index — Browser section)
 ;   CapsLock + b       Win+D    (Show Desktop)
 ;
@@ -674,6 +674,23 @@ ClearNotify() {
 ; Win+Tab (Task View). Bound from `*RAlt` (see header).
 TaskViewHotkey() {
     ShellCombo("LWin", "Tab")
+}
+
+; Move current browser tab to far left / far right of the strip. Chrome/Edge
+; ignore Ctrl+Shift+Home/End for tabs; they use Ctrl+Shift+PgUp/PgDn per step.
+; Repeating that walks the tab to the end (extra steps are harmless at the edge).
+BrowserTabToStripStart() {
+    Loop 30 {
+        SendInput "^+{PgUp}"
+        Sleep 10
+    }
+}
+
+BrowserTabToStripEnd() {
+    Loop 30 {
+        SendInput "^+{PgDn}"
+        Sleep 10
+    }
 }
 
 HistoryTitle(id) {
@@ -792,8 +809,8 @@ Tab:: Send "+{Tab}"
 Tab:: SendInput "{Tab 3}"
 #HotIf
 
-; Hunt and Peck — Alt+, hint overlay · Alt+. tray (hap CLI; disable in-app
-; Alt+; / Ctrl+; if you want no duplicate triggers).
+; Hunt and Peck — Alt+, / Alt+. (hint / tray; disable in-app Alt+; / Ctrl+;
+; if you want no duplicate triggers).
 !,:: Hap("/hint")
 !.:: Hap("/tray")
 CapsLock & m:: Send "^{Tab}"
@@ -956,13 +973,15 @@ RWin & Enter:: KomorebiNotifyStart
 RWin & RShift:: KomorebiNotifyStop
 RWin:: return                                  ; swallow lone RWin — same as LWin
 
-; ── LAlt leader (Escape + browser). Alt+, / Alt+. for hap are `!,::` / `!.::`
-;     above (not here) so they stay next to other Alt+ hotkeys.
+; ── LAlt leader (Escape + browser). Hunt-and-Peck is `!,::` / `!.::` above.
+;     LAlt+n = strip start, LAlt+m = strip end (BrowserTabToStrip*).
 LAlt & CapsLock:: Send "{Escape}"
 LAlt & p:: Send "!{Left}"
 LAlt & i:: Send "!{Right}"
 LAlt & u:: Send "^+{PgUp}"
 LAlt & o:: Send "^+{PgDn}"
+LAlt & n:: BrowserTabToStripStart()
+LAlt & m:: BrowserTabToStripEnd()
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Window management
@@ -994,7 +1013,7 @@ CapsLock & Del:: Send "^{Delete}"
 ;   CapsLock + 1 … 0     Ctrl+1 … Ctrl+0  (Chrome/Edge: jump to tab 1–8, 9=last
 ;                        tab, 0=reset zoom — same as native browser shortcuts)
 ;   CapsLock + r/t/y     refresh / close tab / new tab
-;   LAlt + p/i/u/o      back / forward / move tab (LAlt leader block above)
+;   LAlt + p/i/u/o/n/m  back / forward / move tab L-R / start / end (see LAlt block)
 
 CapsLock & 1:: Send "^1"
 CapsLock & 2:: Send "^2"
