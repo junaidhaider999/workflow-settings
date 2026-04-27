@@ -71,8 +71,8 @@ GRID_LABEL_BG := "000000"
 GRID_LABEL_FG := "00FF99"
 
 ; Hunt and Peck (zsims/hunt-and-peck): `hap.exe` CLI (same as default Alt+;
-; and Ctrl+; in the app). Bound here to Alt+, / Alt+. — set full path if
-; `hap.exe` is not on PATH.
+; and Ctrl+; in the app). Bound as LAlt+, / LAlt+. in the LAlt leader block —
+; set full path if `hap.exe` is not on PATH.
 HAP_EXE := "hap.exe"
 
 ; ═══════════════════════════════════════════════════════════════════════════
@@ -792,10 +792,7 @@ Tab:: Send "+{Tab}"
 Tab:: SendInput "{Tab 3}"
 #HotIf
 
-; Hunt and Peck — Alt+, hint overlay · Alt+. tray (hap CLI; disable in-app
-; Alt+; / Ctrl+; if you want no duplicate triggers).
-!,:: Hap("/hint")
-!.:: Hap("/tray")
+; Hunt and Peck — LAlt+, / LAlt+. (same as old !, / !.; wired in LAlt block).
 CapsLock & m:: Send "^{Tab}"
 CapsLock & n:: Send "^+{Tab}"
 
@@ -956,6 +953,18 @@ RWin & Enter:: KomorebiNotifyStart
 RWin & RShift:: KomorebiNotifyStop
 RWin:: return                                  ; swallow lone RWin — same as LWin
 
+; ── LAlt leader (Escape + browser). All `LAlt & …` before bare `LAlt::` —
+;     same prefix rule as Win. Lone Left Alt → nothing (no menu-bar / mnemonic
+;     steal). You still have CapsLock+RAlt for Alt+Tab if LAlt+Tab feels odd.
+LAlt & CapsLock:: Send "{Escape}"
+LAlt & p:: Send "!{Left}"
+LAlt & i:: Send "!{Right}"
+LAlt & u:: Send "^+{PgUp}"
+LAlt & o:: Send "^+{PgDn}"
+LAlt & ,:: Hap("/hint")
+LAlt & .:: Hap("/tray")
+LAlt:: return
+
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Window management
 ; ═══════════════════════════════════════════════════════════════════════════
@@ -963,7 +972,6 @@ RWin:: return                                  ; swallow lone RWin — same as L
 CapsLock & g:: WinMaximize "A"
 CapsLock & c:: WinClose "A"
 CapsLock & b:: Send "#d"
-LAlt & CapsLock:: Send "{Escape}"
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Editing
@@ -987,7 +995,7 @@ CapsLock & Del:: Send "^{Delete}"
 ;   CapsLock + 1 … 0     Ctrl+1 … Ctrl+0  (Chrome/Edge: jump to tab 1–8, 9=last
 ;                        tab, 0=reset zoom — same as native browser shortcuts)
 ;   CapsLock + r/t/y     refresh / close tab / new tab
-;   LAlt + p/i/u/o      back / forward / move tab (unchanged)
+;   LAlt + p/i/u/o      back / forward / move tab (with other LAlt chords above)
 
 CapsLock & 1:: Send "^1"
 CapsLock & 2:: Send "^2"
@@ -1003,13 +1011,10 @@ CapsLock & 0:: Send "^0"
 CapsLock & r:: Send "^r"
 CapsLock & t:: Send "^w"
 CapsLock & y:: Send "^t"
-LAlt & p:: Send "!{Left}"
-LAlt & i:: Send "!{Right}"
-LAlt & u:: Send "^+{PgUp}"
-LAlt & o:: Send "^+{PgDn}"
 
 ; ═══════════════════════════════════════════════════════════════════════════
 ; Screenshot
 ; ═══════════════════════════════════════════════════════════════════════════
 
 CapsLock & p:: Send "#{PrintScreen}"
+
