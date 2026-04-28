@@ -645,6 +645,7 @@ CapsLock & Enter::
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
 ;   LAlt + n / m       move tab to start / end of bar (repeated ^+PgUp / PgDn)
 ;   CapsLock + 1…0     Ctrl+1…0  (jump to tab by index — Browser section)
+;   CapsLock + g       WinMaximize / WinRestore (toggle on active)
 ;   CapsLock + b       Win+D    (Show Desktop)
 ;
 ; Win+N / Win+M override shell shortcuts (e.g. Win+M minimize-all, Win+N
@@ -988,9 +989,15 @@ LAlt & o:: Send "^+{PgDn}"
 LAlt & n:: BrowserTabToStripStart()
 LAlt & m:: BrowserTabToStripEnd()
 
-; Window management
+; Window management — Caps+g toggles maximize ↔ restore on active window.
 
-CapsLock & g:: WinMaximize "A"
+CapsLock & g::
+{
+    if WinGetMinMax("A") = 1
+        WinRestore "A"
+    else
+        WinMaximize "A"
+}
 CapsLock & c:: WinClose "A"
 CapsLock & b:: Send "#d"
 
