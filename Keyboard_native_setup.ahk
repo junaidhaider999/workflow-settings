@@ -607,13 +607,17 @@ CapsLock & ':: {
 
 CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS Code)
 CapsLock & \:: Send "{Blind}^+p"
-CapsLock & Enter:: return                      ; spare — see “Chord ideas” below
+; Ditto (clipboard): Caps+Enter → Ctrl+` (same as Ditto’s default hotkey).
+CapsLock & Enter::
+{
+    Send "{Ctrl down}"
+    Send "``"                         ; literal `  (Ditto’s default is Ctrl+`)
+    Send "{Ctrl up}"
+}
 
 ; Chord ideas (unbound or absorb-only; pick what you use)
-;   CapsLock + Enter     e.g. Win+Shift+S (Snip), Win+V (clipboard), Win+.
-;                        (emoji), Win+Alt+R (Record — Win11), or Run dialog
-;   CapsLock + RShift    (currently unused) e.g. Win+L lock, Win+R run,
-;                        Win+Ctrl+O (narrator off) — avoid clashing Komorebi
+;   CapsLock + Enter     bound above → Ditto (Ctrl+`)
+;   CapsLock + RShift    e.g. Win+L lock, Win+R run — avoid clashing Komorebi
 ;                        RWin+RShift (komorebic stop) when RWin is down
 ;   Shift + Enter        app-specific (Ctrl+Enter submit in chat); global is
 ;                        risky — prefer #HotIf WinActive(...) if you add it
