@@ -2,4 +2,4 @@
 
 uses autohot key v2
 
-includes navigator-windows, exe files
+includes navigator-windows- exefiles and binaries
