@@ -606,6 +606,7 @@ CapsLock & ':: {
 }
 
 CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS Code)
+CapsLock & RShift:: Send "{Blind}^p"            ; fuzzy Quick Open / file finder (Ctrl+P)
 CapsLock & \:: Send "{Blind}^+p"
 ; Ditto (clipboard): Caps+Enter → Ctrl+` (same as Ditto’s default hotkey).
 CapsLock & Enter::
@@ -617,8 +618,8 @@ CapsLock & Enter::
 
 ; Chord ideas (unbound or absorb-only; pick what you use)
 ;   CapsLock + Enter     bound above → Ditto (Ctrl+`)
-;   CapsLock + RShift    e.g. Win+L lock, Win+R run — avoid clashing Komorebi
-;                        RWin+RShift (komorebic stop) when RWin is down
+;   CapsLock + RShift    bound above → Ctrl+P Quick Open; Komorebi uses RWin+RShift
+;                        for komorebic stop — different chord
 ;   Shift + Enter        app-specific (Ctrl+Enter submit in chat); global is
 ;                        risky — prefer #HotIf WinActive(...) if you add it
 ;   Shift + RShift       almost never used; good slot for one-shot macro or
