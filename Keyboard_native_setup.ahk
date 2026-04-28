@@ -34,7 +34,7 @@ MOUSE_STEP_CRUISE := 8                          ; no-mod ramp ceiling (distinct 
 MOUSE_STEP_FAST := 22                         ; Space tier — clearly above cruise
 MOUSE_STEP_MAX := 40                         ; Q turbo tier
 MOUSE_RAMP := 14                         ; ~140 ms MIN → CRUISE (cosine-eased)
-MOUSE_TAP_SECS := 0.25                       ; CapsLock+Tab: tap<this = latch, else hold
+MOUSE_TAP_SECS := 0.25                       ; CapsLock+W: tap<this = latch, else hold
 
 ; Scroll / text navigation tuning.
 SCROLL_NORMAL := 1, SCROLL_FAST := 5           ; wheel ticks
@@ -97,7 +97,7 @@ gridRectStack := []
 gridPool := []                             ; [{g,t}, …] built lazily
 
 ; Mouse mode
-;   Entry / exit       CapsLock+Tab    tap<TAP_SECS = LATCH, else HOLD
+;   Entry / exit       CapsLock+W    tap<TAP_SECS = LATCH, else HOLD (not in grid)
 ;   Quick exit         Escape          (solo layer; always available)
 ;   Motion             I J K L         100-Hz poller; diagonals for free
 ;   Speed override     Space           FAST (skip the ramp)
@@ -213,7 +213,7 @@ EnterMouseMode(latched := false) {
 }
 
 ; Auto-releases any live drag button so the system can't be left with a
-; stuck mouse button (e.g. Tab released mid-drag in HOLD mode).
+; stuck mouse button (e.g. W released mid-drag in HOLD mode).
 ExitMouseMode() {
     global mouseMode, mouseLatched, mouseDrag
     SetTimer MouseTick, 0
@@ -241,29 +241,28 @@ DragHold(btn, keyName) {
     mouseDrag := ""
 }
 
-; Mouse-mode hotkeys
-CapsLock & Tab:: {
+; Mouse-mode entry / exit — CapsLock+W (same physical key as grid «w» zoom,
+; but `#HotIf gridActive` wires w to GridZoom instead).
+#HotIf !gridActive
+CapsLock & w:: {
     global mouseLatched
     if mouseMode {
         ExitMouseMode()
         return
     }
     EnterMouseMode(false)
-    ; KeyWait returns TRUE on key-release (tap), FALSE on timeout (hold).
-    if KeyWait("Tab", "T" MOUSE_TAP_SECS)
+    if KeyWait("w", "T" MOUSE_TAP_SECS)
         mouseLatched := true                    ; quick tap → latch
     else {
-        KeyWait "Tab"                           ; held past window → momentary
+        KeyWait "w"                             ; held past window → momentary
         ExitMouseMode()
     }
 }
+#HotIf
 
-; Absorb Q while Tab is held so `CapsLock+Tab+Q` (MAX modifier) doesn't
-; leak to `CapsLock+Q` (copy). Tab-prefixed combos win over CapsLock-ones.
-; `~` prefix keeps Tab as a pass-through so bare Tab has ZERO delay — the
-; Tab character during CapsLock+Tab+Q is harmless because Tab is already
-; consumed by the CapsLock+Tab mouse-mode entry chord.
-~Tab & q:: return
+; Absorb Q while W is held as the mouse-entry chord suffix so CapsLock+Q
+; (copy) doesn't fire during CapsLock+W+Q turbo setup.
+~w & q:: return
 
 ; Solo layer — fires on bare keypress while mouseMode is true. This is what
 ; makes LATCH usable after CapsLock is released. Custom CapsLock combos
@@ -1006,7 +1005,7 @@ CapsLock & b:: Send "#d"
 CapsLock & -:: Send "^z"
 CapsLock & =:: Send "^y"
 CapsLock & q:: Send "^c"
-CapsLock & w:: Send "^x"
+CapsLock & v:: Send "^x"
 CapsLock & e:: Send "^v"
 CapsLock & a:: Send "^a"
 CapsLock & s:: Send "^s"
