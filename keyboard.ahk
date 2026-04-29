@@ -103,7 +103,6 @@ MousePrecisionPhys() {
     return GetKeyState("Space", "P")
 }
 
-
 ; Single source of truth for "what speed / tier name apply right now".
 ; Both the motion poller and the HUD call this so they can never disagree.
 ;
@@ -301,7 +300,7 @@ $Escape:: ExitMouseMode()
 ;   Right click        '                centre right-click — same as mouse '
 ;   Space              grid: absorbed · mouse mode: precision tier (absorbed)
 ;   Undo zoom          Backspace        pop one level back up the zoom stack
-;   Cancel             Escape           dismiss without clicking
+;   Cancel             Escape · LAlt+Caps (either order)  dismiss / same as global Esc chord
 ;
 ; Each zoom narrows the active rect to one ninth of the current area; after
 ; three zooms a 1920×1080 cell is ~71×40 px and after four it's ~24×13 px.
@@ -415,6 +414,17 @@ EndGridNav() {
     }
 }
 
+; LAlt+Caps sends Escape globally, but `LAlt & CapsLock` only matches Alt-then-Caps.
+; After Caps+/ the physical order is often Caps-then-Alt — use `CapsLock & LAlt` too.
+; When the grid is up, close it here; `*Escape` does not run for this chord order.
+LAltCapsEscChord() {
+    global gridActive
+    if gridActive
+        EndGridNav()
+    else
+        Send "{Escape}"
+}
+
 GridZoom(keyIdx) {
     global gridRectStack, GRID_MIN_CELL_PX
     Critical "On"
@@ -509,7 +519,7 @@ $':: GridClick("R")
 CapsLock & vkBA:: GridClick("L")
 CapsLock & ':: GridClick("R")
 $Backspace:: GridUndoZoom()
-$Escape:: EndGridNav()
+*Escape:: EndGridNav()                          ; * = fire even if Caps still down from Caps+/
 #HotIf
 
 #HotIf !gridActive && !mouseMode
@@ -715,14 +725,14 @@ LockWorkstation(*) {
 ; ignore Ctrl+Shift+Home/End for tabs; they use Ctrl+Shift+PgUp/PgDn per step.
 ; Repeating that walks the tab to the end (extra steps are harmless at the edge).
 BrowserTabToStripStart() {
-    Loop 30 {
+    loop 30 {
         SendInput "^+{PgUp}"
         Sleep 10
     }
 }
 
 BrowserTabToStripEnd() {
-    Loop 30 {
+    loop 30 {
         SendInput "^+{PgDn}"
         Sleep 10
     }
@@ -1004,7 +1014,8 @@ RWin & RShift:: KomorebiNotifyStop
 RWin:: return                                  ; swallow lone RWin — same as LWin
 
 ; LAlt leader (Escape, browser strip, lock). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
-LAlt & CapsLock:: Send "{Escape}"
+LAlt & CapsLock:: LAltCapsEscChord()
+CapsLock & LAlt:: LAltCapsEscChord()
 LAlt & RAlt:: LockWorkstation()
 LAlt & p:: Send "!{Left}"
 LAlt & i:: Send "!{Right}"
@@ -1048,7 +1059,7 @@ CapsLock & Del:: Send "^{Delete}"
 IsWindowsTerminalFocused() {
     try {
         return WinActive("ahk_exe WindowsTerminal.exe")
-            || WinActive("ahk_class CASCADIA_HOSTING_WINDOW_CLASS")
+        || WinActive("ahk_class CASCADIA_HOSTING_WINDOW_CLASS")
     } catch {
         return false
     }
