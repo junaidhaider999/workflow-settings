@@ -2,7 +2,7 @@
 #SingleInstance Force
 #MaxThreadsBuffer True
 #MaxThreadsPerHotkey 1
-InstallKeybdHook                                ; reliable GetKeyState("…","P") for Tab/Space/q
+InstallKeybdHook                                ; reliable GetKeyState("…","P") for Tab/Space/r
 
 SendMode "Input"
 SetKeyDelay -1, -1
@@ -16,24 +16,22 @@ SetCapsLockState "AlwaysOff"
 
 ; Config
 
-; Mouse mode — 100-Hz poller on IJKL. Four distinct speed tiers:
-;   no mod  : cosine S-curve ramp MIN → CRUISE over MOUSE_RAMP ticks.
-;             Ramp ceiling is CRUISE (NOT FAST) so this tier stays clearly
-;             below Space even after holding indefinitely — this is what
-;             gives Space something meaningful to modify.
-;   Space   : pegged at FAST    (instant step up from the no-mod ceiling)
-;   Q       : pegged at MAX     (cross-monitor sweep)
+; Mouse mode — 100-Hz poller on IJKL. Speed roles:
+;   CapsLock + cluster : cosine S-curve ramp MIN → CRUISE (normal)
+;   bare cluster       : pegged at FAST
+;   CapsLock + Space + cluster : PRECISION (fixed — fine aim, not 1-px crawl)
+;   R                  : pegged at MAX
 ;
-; The MIN → CRUISE → FAST → MAX ladder is intentionally geometric-ish
-; (1 → 8 → 22 → 40 ≈ ×8 ×2.75 ×1.8) so every tier feels like a genuine
-; gear shift, not an incremental tweak.
+; MIN → CRUISE → FAST → MAX ladder (~9 → 26 → 32 → 52 px/tick @ 100 Hz).
+; P (CapsLock+Space) = PRECISION fixed step (MOUSE_STEP_PRECISION).
 MOUSE_TICK_MS := 10                         ; 100 Hz
 MOUSE_STATUS_MS := 50                         ; HUD refresh
-MOUSE_STEP_MIN := 1                          ; precise — sub-pixel feel at ramp start
-MOUSE_STEP_CRUISE := 8                          ; no-mod ramp ceiling (distinct from FAST)
-MOUSE_STEP_FAST := 22                         ; Space tier — clearly above cruise
-MOUSE_STEP_MAX := 40                         ; Q turbo tier
-MOUSE_RAMP := 14                         ; ~140 ms MIN → CRUISE (cosine-eased)
+MOUSE_STEP_MIN := 9                          ; ramp floor — immediate usable motion
+MOUSE_STEP_CRUISE := 26                         ; mode 1 ceiling — daily-driver speed
+MOUSE_STEP_PRECISION := 5                     ; mode 2 — minimal fixed step (fine aim)
+MOUSE_STEP_FAST := 32                         ; bare cluster — clearly above cruise
+MOUSE_STEP_MAX := 52                         ; R — cross-monitor sweep
+MOUSE_RAMP := 6                         ; ~60 ms MIN → CRUISE (cosine-eased)
 MOUSE_TAP_SECS := 0.25                       ; CapsLock+W: tap<this = latch, else hold
 
 ; Scroll / text navigation tuning.
@@ -100,16 +98,34 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ;   Entry / exit       CapsLock+W    tap<TAP_SECS = LATCH, else HOLD (not in grid)
 ;   Quick exit         Escape          (solo layer; always available)
 ;   Motion             I J K L         100-Hz poller; diagonals for free
-;   Speed override     Space           FAST (skip the ramp)
-;   Turbo              Q               MAX (above FAST)
+;   Normal ramp        CapsLock+IJKL   MIN→CRUISE (cosine)
+;   Fast               bare IJKL       FAST (skip ramp; latch-friendly)
+;   Precision          CapsLock+Space+IJKL   PRECISION (fixed)
+;   Turbo              R               MAX
 ;   Scroll             u / o           Space = fast scroll
 ;   Left click/drag    ;               tap = click, hold = LEFT drag
 ;   Right click/drag   '               tap = click, hold = RIGHT drag
+;   HUD                top-right of monitor under cursor — `H|L  N|P|F|T  step  dir  bar  [L|R]`
+;                      (H/L hold/latch; N normal ramp; P precision; F fast; T turbo)
 ;
 ; Two sub-layers coexist: CapsLock-prefixed combos win when CapsLock IS
 ; held (HOLD mode, or LATCH while CapsLock is still down); the `#HotIf
 ; mouseMode` solo layer fires on bare keypress after CapsLock is released
 ; (LATCH mode). Absorbed keys prevent letters leaking to the focused app.
+
+; Physical Caps Lock + Space — use vk codes: logical CapsLock state is forced
+; AlwaysOff at startup, so GetKeyState("CapsLock") / toggle checks mislead.
+; $Space under mouseMode must not steal Space while CapsLock is down (precision).
+
+MouseCapsPhys() {
+    return GetKeyState("vk14", "P")
+}
+
+MouseSpacePhys() {
+    return GetKeyState("vk20", "P")
+}
+
+; Two-part #HotIf for bare Space only — see MouseModeBareSpaceHotIf below.
 
 ; Single source of truth for "what speed / tier name apply right now".
 ; Both the motion poller and the HUD call this so they can never disagree.
@@ -120,19 +136,24 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ; pointer-precision feels vs the old linear ramp which hit cruise abruptly.
 MouseTier(ticks) {
     static PI := 3.14159265358979
-    if GetKeyState("q", "P")
+    if GetKeyState("r", "P")
         return { step: MOUSE_STEP_MAX, tier: "🚀 TURBO" }
-    if GetKeyState("Space", "P")
-        return { step: MOUSE_STEP_FAST, tier: "⚡ FAST" }
+    if MouseSpacePhys() && MouseCapsPhys()
+        return { step: MOUSE_STEP_PRECISION, tier: "· precise" }
+    if MouseCapsPhys() {
+        if ticks = 0
+            return { step: 0, tier: "○ idle" }
+        r := ticks < MOUSE_RAMP ? ticks / MOUSE_RAMP : 1
+        ratio := 0.5 * (1 - Cos(PI * r))
+        step := MOUSE_STEP_MIN + Round((MOUSE_STEP_CRUISE - MOUSE_STEP_MIN) * ratio)
+        tier := ticks < MOUSE_RAMP / 3 ? "· precise"
+            : ticks < MOUSE_RAMP ? "◎ accel  "
+                : "◉ cruise "
+        return { step: step, tier: tier }
+    }
     if ticks = 0
         return { step: 0, tier: "○ idle" }
-    r := ticks < MOUSE_RAMP ? ticks / MOUSE_RAMP : 1
-    ratio := 0.5 * (1 - Cos(PI * r))
-    step := MOUSE_STEP_MIN + Round((MOUSE_STEP_CRUISE - MOUSE_STEP_MIN) * ratio)
-    tier := ticks < MOUSE_RAMP / 3 ? "· precise"
-        : ticks < MOUSE_RAMP ? "◎ accel  "
-            : "◉ cruise "
-    return { step: step, tier: tier }
+    return { step: MOUSE_STEP_FAST, tier: "⚡ FAST" }
 }
 
 MouseTick() {
@@ -152,15 +173,14 @@ MouseTick() {
     MouseMove dx * step, dy * step, 0, "R"
 }
 
-; 10-segment █/░ progress bar for the HUD. (Named `MakeBar` not `Bar` so the
-; local `bar` in `MouseStatus` can't shadow it — identifiers are case-
-; insensitive in AHK v2 and a same-name local would hide the global here.)
-MakeBar(pct) {
-    filled := Max(0, Min(10, Round(pct * 10)))
+; Narrow █/░ bar for HUD (default 5 segments — compact).
+MakeBar(pct, segments := 5) {
+    seg := Max(1, segments)
+    filled := Max(0, Min(seg, Round(pct * seg)))
     s := ""
     loop filled
         s .= "█"
-    loop 10 - filled
+    loop seg - filled
         s .= "░"
     return s
 }
@@ -183,22 +203,45 @@ MouseDir() {
     }
 }
 
-; Live HUD on tooltip slot 1. Notify() owns slot 2, so they coexist.
-; Two-line layout: header = mode · tier · step · direction,
-;                  footer = bar [· drag tag].
+; Tier tag for compact HUD (must match MouseTier priority).
+MouseHudTier() {
+    if GetKeyState("r", "P")
+        return "T"
+    if MouseSpacePhys() && MouseCapsPhys()
+        return "P"
+    if MouseCapsPhys()
+        return "N"
+    return "F"
+}
+
+; Work area of the monitor under the cursor (primary if unknown). Used to
+; anchor the mouse HUD so it does not follow every cursor pixel.
+MouseMonitorWork(&L, &T, &R, &B) {
+    MouseGetPos &mx, &my
+    loop MonitorGetCount() {
+        MonitorGet A_Index, &mL, &mT, &mR, &mB
+        if (mx >= mL && mx < mR && my >= mT && my < mB) {
+            MonitorGetWorkArea A_Index, &L, &T, &R, &B
+            return
+        }
+    }
+    MonitorGetWorkArea 1, &L, &T, &R, &B
+}
+
+; Live HUD on tooltip slot 1. Fixed top-right of active monitor (only moves
+; when you cross monitors). Compact: H/L hold·latch, N/P/F/T tier, step, dir.
 MouseStatus() {
     if !mouseMode
         return
     t := MouseTier(mouseHoldTicks)
-    mode := mouseLatched ? "LATCH" : "HOLD "
-    drag := mouseDrag = "L" ? "  ◼ L-DRAG"
-        : mouseDrag = "R" ? "  ◼ R-DRAG" : ""
-    MouseGetPos &mx, &my
-    ToolTip Format(
-        "🖱 {1}  │  {2}  │  {3} px  │  {4}`n[{5}]{6}",
-        mode, t.tier, Format("{:2}", t.step), MouseDir(),
-        MakeBar(t.step / MOUSE_STEP_MAX), drag
-    ), mx + 24, my + 24, 1
+    latch := mouseLatched ? "L" : "H"
+    tier := MouseHudTier()
+    drag := mouseDrag = "L" ? " L" : mouseDrag = "R" ? " R" : ""
+    bar := MakeBar(t.step / MOUSE_STEP_MAX, 5)
+    MouseMonitorWork(&wl, &wt, &wr, &wb)
+    tipX := wr - 168
+    tipY := wt + 4
+    ToolTip Format("{1} {2} {3} {4} {5}{6}", latch, tier, t.step, MouseDir(), bar, drag), tipX, tipY, 1
 }
 
 EnterMouseMode(latched := false) {
@@ -260,13 +303,24 @@ CapsLock & w:: {
 }
 #HotIf
 
-; Absorb Q while W is held as the mouse-entry chord suffix so CapsLock+Q
-; (copy) doesn't fire during CapsLock+W+Q turbo setup.
-~w & q:: return
+; Absorb R while W is held as the mouse-entry chord suffix so CapsLock+R
+; (refresh) doesn't fire during CapsLock+W+R turbo setup.
+~w & r:: return
 
 ; Solo layer — fires on bare keypress while mouseMode is true. This is what
 ; makes LATCH usable after CapsLock is released. Custom CapsLock combos
 ; still win when CapsLock IS held, so both workflows coexist.
+; Absorb bare Space in mouse mode only when CapsLock is not held — otherwise
+; CapsLock+Space+IJKL never sees Space (precision). CapsLock+Space still
+; swallowed globally by `CapsLock & Space::` below.
+MouseModeBareSpaceHotIf() {
+    global mouseMode
+    return mouseMode && !GetKeyState("vk14", "P")
+}
+
+#HotIf MouseModeBareSpaceHotIf()
+$Space:: return
+
 #HotIf mouseMode
 $j:: MouseTick()
 $k:: MouseTick()
@@ -276,10 +330,10 @@ $u:: Scroll("Up")
 $o:: Scroll("Down")
 $`;:: DragHold("L", ";")
 $':: DragHold("R", "'")
-$Space:: return                                  ; absorb — read physically by MouseTier
-$q:: return                                      ; absorb — read physically by MouseTier
+$r:: return                                      ; absorb — read physically by MouseTier
 $d:: return                                      ; absorb — read physically by Navigate() Shift modifier
 CapsLock & q:: return                            ; override default "copy" while in mouse mode
+CapsLock & r:: return                            ; override refresh while in mouse mode
 $Escape:: ExitMouseMode()
 #HotIf
 
