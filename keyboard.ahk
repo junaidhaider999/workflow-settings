@@ -502,6 +502,8 @@ CapsLock & z:: GridZoom(7)
 CapsLock & x:: GridZoom(8)
 CapsLock & c:: GridZoom(9)
 CapsLock & Tab:: return                         ; avoid ^Home while grid overlay is up
+LShift & CapsLock:: return                      ; avoid bottom scroll while grid overlay is up
+RShift & CapsLock:: return
 $Space:: return                                  ; absorb — same slot as mouse Space tier
 $vkBA:: GridClick("L")
 $':: GridClick("R")
@@ -516,11 +518,14 @@ CapsLock & w:: Send "{Blind}^n"               ; new window (most apps)
 #HotIf
 
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
+;   CapsLock + Tab     top of doc — Ctrl+Home + scroll assist (DocumentScrollTop)
+;   LShift/RShift + Caps (Shift first)  bottom — Ctrl+End + same (DocumentScrollBottom)
 ;   CapsLock + [ / ]    Home / End   (moved from h / ;)
 ;   CapsLock + h       WinMinimize active   (Home is [ / ])
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
 ;                        menu). Mouse/grid: unchanged (drag / grid L/R).
-;   CapsLock + LShift / \   Ctrl+Shift+P  (command palette)
+;   CapsLock + LShift / \   Ctrl+Shift+P (command palette) — Caps before Shift
+;   LShift/RShift + Caps (Shift first)  bottom of doc — DocumentScrollBottom (see hotkeys below)
 
 ; In mouse mode: trigger motion immediately (zero-latency first move); the
 ; timer then continues the ramp. Outside mouse mode: send the arrow,
@@ -546,8 +551,8 @@ Scroll(dir) {
     Send "{Wheel" dir " " (GetKeyState("Space", "P") ? SCROLL_FAST : SCROLL_NORMAL) "}"
 }
 
-; Caps+Tab / LAlt+Tab — top / bottom: Ctrl+Home/End first, then (on known hosts)
-; batched wheel toward extremities so scrollable viewports reach true top/bottom.
+; Caps+Tab (top) / Shift+Caps bottom: Ctrl+Home / Ctrl+End first, then (on known hosts)
+; batched wheel — same assist. Shift must be pressed *before* Caps (see LShift & CapsLock).
 DocumentScrollAssistActive() {
     exe := ""
     try exe := StrLower(WinGetProcessName("A"))
@@ -579,6 +584,9 @@ DocumentScrollTop(*) {
 }
 
 DocumentScrollBottom(*) {
+    global mouseMode
+    if mouseMode
+        return
     SendInput "{Blind}^{End}"
     if DocumentScrollAssistActive()
         WheelBurstToward(false)
@@ -632,6 +640,9 @@ CapsLock & ':: {
 
 CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS Code)
 CapsLock & RShift:: Send "{Blind}^p"            ; fuzzy Quick Open / file finder (Ctrl+P)
+; Bottom of doc: hold Shift first, then CapsLock (not CapsLock & LShift — that is ^+p above).
+LShift & CapsLock:: DocumentScrollBottom()
+RShift & CapsLock:: DocumentScrollBottom()
 CapsLock & \:: Send "{Blind}^+p"
 ; Ditto (clipboard): Caps+Enter → Ctrl+` (same as Ditto’s default hotkey).
 CapsLock & Enter::
@@ -654,12 +665,13 @@ CapsLock & Enter::
 ; Tab / window / element switching  +  focus history
 ;   Win + N / M        walk BACK / FORWARD through focus history (non-cyclic)
 ;                        (N back / M forward — not related to CapsLock+m/n)
-;   *RAlt              Win+Tab (Task View) — `*` so it still runs if the driver
-;                        holds LCtrl before RAlt (AltGr note: see AHK docs).
+;   *RAlt              Win+Tab (Task View) when Left Alt is *not* held — `*` for
+;                        AltGr stack (see AHK docs). If LAlt is down first, RAlt
+;                        is reserved for LAlt+RAlt lock instead of Task View.
+;   LAlt + RAlt        lock workstation (LockWorkStation) — press LAlt first, then RAlt.
+;   CapsLock + Tab     top — Ctrl+Home + wheel assist (same list as bottom)
+;   LShift/RShift + Caps (Shift first)  bottom — Ctrl+End + same (Alt+Tab is OS default)
 ;   CapsLock + RAlt    Alt+Tab (window switcher)
-;   CapsLock + Tab     top — Ctrl+Home + wheel burst on browsers / common page UIs
-;   Left Alt + Tab (<!Tab)  bottom — Ctrl+End + same (replaces OS task switcher;
-;                        window switcher: CapsLock+RAlt).
 ;   Physical ; (held) + Tab     Shift+Tab (reverse element)
 ;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
@@ -689,9 +701,15 @@ ClearNotify() {
     ToolTip , , , 2
 }
 
-; Win+Tab (Task View). Bound from `*RAlt` (see header).
+; Win+Tab (Task View). *RAlt only when LAlt is not held (see #HotIf block).
 TaskViewHotkey() {
     ShellCombo("LWin", "Tab")
+}
+
+; Lock session (same idea as Win+L — sign-in screen; session keeps running).
+LockWorkstation(*) {
+    if !DllCall("LockWorkStation")
+        Notify("Lock: LockWorkStation failed", 2200)
 }
 
 ; Move current browser tab to far left / far right of the strip. Chrome/Edge
@@ -813,7 +831,11 @@ GoForwardWindowHistory() {
 
 ; Bare `RAlt::` often never fires when the OS/driver holds LCtrl first (AltGr).
 ; `*` wildcard ensures it still runs even with phantom LCtrl (AltGr stack).
+; When Left Alt is already held (LAlt before RAlt), *RAlt is disabled so
+; `LAlt & RAlt` can lock the session instead of Task View.
+#HotIf !GetKeyState("LAlt", "P")
 *RAlt:: TaskViewHotkey()
+#HotIf
 CapsLock & RAlt:: ShellCombo("LAlt", "Tab")
 
 ; Reverse UI tab order (Shift+Tab). Hold physical ; (vkBA), press Tab.
@@ -971,10 +993,9 @@ RegisterKomorebiWinChords(*) {
 LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
 RWin:: return                                  ; swallow lone RWin — same as LWin
 
-; LAlt leader (Escape, document end, browser strip). <!Tab = Left Alt+Tab → bottom
-;     (Ctrl+End + scroll assist). OS task switcher: CapsLock+RAlt.
+; LAlt leader (Escape, browser strip, lock). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
 LAlt & CapsLock:: Send "{Escape}"
-<!Tab:: DocumentScrollBottom()                 ; bottom of document / scrollable view
+LAlt & RAlt:: LockWorkstation()
 LAlt & p:: Send "!{Left}"
 LAlt & i:: Send "!{Right}"
 LAlt & u:: Send "^+{PgUp}"
