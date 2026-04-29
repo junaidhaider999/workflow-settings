@@ -19,14 +19,16 @@ SetCapsLockState "AlwaysOff"
 ; Mouse mode — CapsLock+F entry:
 ;   Quick F release = LATCH · Hold F past TAP_SECS then release = end hold session
 ;   Caps+F again while active = EXIT · Escape = EXIT
-;   Cruise = IJKL (cosine ramp) · Turbo = hold W + IJKL · Precision = hold Space + IJKL
+;   Cruise = IJKL (cosine ramp) · Turbo = hold W + IJKL · Precision = hold Space + IJKL (ease-in + low cap)
 MOUSE_TICK_MS := 10                         ; 100 Hz
 MOUSE_STATUS_MS := 50                         ; HUD refresh
-MOUSE_STEP_MIN := 11                         ; ramp floor — slightly higher for smoother start
-MOUSE_STEP_CRUISE := 34                         ; cruise ceiling (cosine ramp)
-MOUSE_STEP_PRECISION := 8                     ; Space + cluster — fine aim
+MOUSE_STEP_MIN := 8                          ; cruise ramp floor — light first moves
+MOUSE_STEP_CRUISE := 40                     ; cruise ceiling — slightly quicker top speed
+MOUSE_STEP_PRECISION_LO := 1                  ; Space+IJKL: first ticks — single-pixel nudges
+MOUSE_STEP_PRECISION := 6                    ; Space+IJKL: steady fine aim (after ease-in)
+MOUSE_PRECISION_RAMP_TICKS := 4               ; ticks of cosine ease-in LO→HI (then hold HI)
 MOUSE_STEP_MAX := 52                         ; W + cluster — turbo sweep
-MOUSE_RAMP := 10                         ; longer ramp — smoother acceleration to cruise
+MOUSE_RAMP := 12                         ; cruise ramp ticks — smoother accel, clearer coast
 MOUSE_TAP_SECS := 0.25                       ; Caps+F: release F within this = LATCH, else HOLD
 
 ; Scroll / text navigation tuning.
@@ -88,9 +90,9 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ;   Entry / exit       CapsLock+F    tap<TAP_SECS on F = LATCH, else HOLD (not in grid)
 ;   Exit               CapsLock+F again · Escape
 ;   Motion             I J K L       100-Hz poller; diagonals for free
-;   Cruise             IJKL only     MIN→CRUISE (cosine)
+;   Cruise             IJKL only     MIN→CRUISE (cosine ramp, MOUSE_RAMP ticks)
 ;   Turbo              W + IJKL      MAX
-;   Precision          Space + IJKL  fixed step
+;   Precision          Space + IJKL  cosine ease-in → low steady step
 ;   Scroll             u / o         Space = fast wheel (same key as precision tier)
 ;   Left / right drag  ; / '
 ;   HUD                H/L + C|P|T   (cruise · precise · turbo)
@@ -106,24 +108,37 @@ MousePrecisionPhys() {
 ; Single source of truth for "what speed / tier name apply right now".
 ; Both the motion poller and the HUD call this so they can never disagree.
 ;
-; Curve: cosine S-curve (0.5·(1-cos(π·r))) instead of linear ramp. Gives a
-; soft-start (sub-pixel-feel for first few ticks), smooth mid-acceleration,
-; and a gentle settle at cruise velocity — mimics how physical-mouse
-; pointer-precision feels vs the old linear ramp which hit cruise abruptly.
+; Curve: cosine S-curve on r = ticks/MOUSE_RAMP. HUD bands follow the curve
+; (longer "soft" early) instead of equal tick thirds.
 MouseTier(ticks) {
     static PI := 3.14159265358979
     if MouseTurboPhys()
         return { step: MOUSE_STEP_MAX, tier: "🚀 TURBO" }
-    if MousePrecisionPhys()
-        return { step: MOUSE_STEP_PRECISION, tier: "· precise" }
+    if MousePrecisionPhys() {
+        if ticks <= 0
+            return { step: MOUSE_STEP_PRECISION, tier: "· precise" }
+        lo := MOUSE_STEP_PRECISION_LO
+        hi := MOUSE_STEP_PRECISION
+        cap := MOUSE_PRECISION_RAMP_TICKS
+        if cap > 1 && ticks <= cap {
+            r := (ticks - 1) / (cap - 1)
+            ratio := 0.5 * (1 - Cos(PI * r))
+            step := lo + Round((hi - lo) * ratio)
+        } else
+            step := hi
+        return { step: step, tier: "· precise" }
+    }
     if ticks = 0
         return { step: 0, tier: "○ idle" }
     r := ticks < MOUSE_RAMP ? ticks / MOUSE_RAMP : 1
     ratio := 0.5 * (1 - Cos(PI * r))
     step := MOUSE_STEP_MIN + Round((MOUSE_STEP_CRUISE - MOUSE_STEP_MIN) * ratio)
-    tier := ticks < MOUSE_RAMP / 3 ? "· soft   "
-        : ticks < MOUSE_RAMP ? "◎ accel  "
-            : "◉ cruise "
+    softEnd := MOUSE_RAMP * 0.42
+    accelEnd := MOUSE_RAMP * 0.78
+    tier := ticks < softEnd ? "· soft   "
+        : ticks < accelEnd ? "◎ accel  "
+            : ticks < MOUSE_RAMP ? "◇ settle "
+                : "◉ cruise "
     return { step: step, tier: tier }
 }
 
