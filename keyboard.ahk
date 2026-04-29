@@ -22,11 +22,11 @@ SetCapsLockState "AlwaysOff"
 ;   Cruise = IJKL (cosine ramp) · Turbo = hold W + IJKL · Precision = hold Space + IJKL
 MOUSE_TICK_MS := 10                         ; 100 Hz
 MOUSE_STATUS_MS := 50                         ; HUD refresh
-MOUSE_STEP_MIN := 9                          ; ramp floor — immediate usable motion
-MOUSE_STEP_CRUISE := 26                         ; cruise ceiling (cosine ramp)
-MOUSE_STEP_PRECISION := 5                     ; Space + cluster — fine aim
+MOUSE_STEP_MIN := 11                         ; ramp floor — slightly higher for smoother start
+MOUSE_STEP_CRUISE := 34                         ; cruise ceiling (cosine ramp)
+MOUSE_STEP_PRECISION := 8                     ; Space + cluster — fine aim
 MOUSE_STEP_MAX := 52                         ; W + cluster — turbo sweep
-MOUSE_RAMP := 6                         ; ~60 ms MIN → CRUISE (cosine-eased)
+MOUSE_RAMP := 10                         ; longer ramp — smoother acceleration to cruise
 MOUSE_TAP_SECS := 0.25                       ; Caps+F: release F within this = LATCH, else HOLD
 
 ; Scroll / text navigation tuning.
@@ -60,11 +60,6 @@ GRID_KEYS := ["q", "w", "e", "a", "s", "d", "z", "x", "c"]
 GRID_MIN_CELL_PX := 35
 GRID_LABEL_BG := "000000"
 GRID_LABEL_FG := "00FF99"
-
-; Hunt and Peck (zsims/hunt-and-peck): `hap.exe` — Alt+, hint · Alt+. tray.
-; Set full path if `hap.exe` is not on PATH. Fuzzy Quick Open is CapsLock+W (^p),
-; not hap.
-HAP_EXE := "hap.exe"
 
 ; State
 
@@ -259,6 +254,10 @@ DragHold(btn, keyName) {
     mouseDrag := ""
 }
 
+; Komorebi: defer Win-chord registration until after this thread finishes so every
+; callback target exists. Timer form accepts SetTimer's optional name argument.
+SetTimer RegisterKomorebiWinChords, -0
+
 ; Mouse mode — CapsLock+F: first chord enters; quick F release = latch; hold F
 ; past TAP_SECS then release = end hold; CapsLock+F again while active = exit.
 #HotIf !gridActive && !mouseMode
@@ -316,8 +315,7 @@ $Escape:: ExitMouseMode()
 ;
 ; Performance: nine label Guis are pooled and only Hidden/Re-shown (no
 ; per-frame Destroy). Grid entry points use `Critical` so rapid zoom keys
-; cannot re-enter and stack ghost overlays or leak letters. HUD lives on
-; tooltip slot 3; slot-2 Notify on open was removed.
+; cannot re-enter and stack ghost overlays or leak letters.
 
 ; Active monitor = monitor containing the current cursor position. Falls
 ; back to the primary monitor's work area if the cursor somehow isn't on
@@ -357,30 +355,6 @@ EnsureGridPool() {
     }
 }
 
-; Persistent HUD on tooltip slot 3 (mouse=1, transient Notify=2).
-GridHud() {
-    global gridActive, gridRectStack, GRID_MIN_CELL_PX
-    if !gridActive || !gridRectStack.Length
-        return
-    r := gridRectStack[gridRectStack.Length]
-    lvl := gridRectStack.Length
-    cw := Round(r.w / 3)
-    ch := Round(r.h / 3)
-    cx := Round(r.x + r.w / 2)
-    cy := Round(r.y + r.h / 2)
-    auto := (cw < GRID_MIN_CELL_PX || ch < GRID_MIN_CELL_PX)
-    ; Use mon* names — AHK vars are case-insensitive: &R would clobber `r` (rect).
-    MonitorGetWorkArea(1, &monL, &monT, &monR, &monB)
-    ToolTip(
-        Format(
-            "GRID  z{1}  |  rect {2}x{3}  |  cell {4}x{5}  |  aim ({6},{7})`n"
-            "QWE ASD ZXC zoom  |  " Chr(59) " L  " Chr(39) " R (mouse match)  |  Bsp undo  Esc{8}",
-            lvl, Round(r.w), Round(r.h), cw, ch, cx, cy, auto ? "  ·  next key→auto-L" : ""
-        ),
-        monL + 12, monB - 96, 3
-    )
-}
-
 ; Render the 9 cell labels at centre-points of the top rect on the zoom
 ; stack. Caller must hold `Critical` so hotkeys cannot re-enter mid-frame.
 RenderGrid() {
@@ -410,7 +384,6 @@ RenderGrid() {
         yG := Round(cy - labelH / 2)
         g.Show(Format("x{1} y{2} w{3} h{4} NoActivate", xG, yG, labelW, labelH))
     }
-    GridHud()
 }
 
 StartGridNav() {
@@ -436,7 +409,6 @@ EndGridNav() {
     Critical "On"
     try {
         ClearGridOverlay()
-        ToolTip , , , 3
         gridActive := false
         gridRectStack := []
     } finally {
@@ -529,6 +501,7 @@ CapsLock & d:: GridZoom(6)
 CapsLock & z:: GridZoom(7)
 CapsLock & x:: GridZoom(8)
 CapsLock & c:: GridZoom(9)
+CapsLock & Tab:: return                         ; avoid ^Home while grid overlay is up
 $Space:: return                                  ; absorb — same slot as mouse Space tier
 $vkBA:: GridClick("L")
 $':: GridClick("R")
@@ -539,7 +512,7 @@ $Escape:: EndGridNav()
 #HotIf
 
 #HotIf !gridActive && !mouseMode
-CapsLock & w:: Send "{Blind}^p"
+CapsLock & w:: Send "{Blind}^n"               ; new window (most apps)
 #HotIf
 
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
@@ -573,6 +546,44 @@ Scroll(dir) {
     Send "{Wheel" dir " " (GetKeyState("Space", "P") ? SCROLL_FAST : SCROLL_NORMAL) "}"
 }
 
+; Caps+Tab / LAlt+Tab — top / bottom: Ctrl+Home/End first, then (on known hosts)
+; batched wheel toward extremities so scrollable viewports reach true top/bottom.
+DocumentScrollAssistActive() {
+    exe := ""
+    try exe := StrLower(WinGetProcessName("A"))
+    catch
+        return false
+    static exes := [
+        "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "vivaldi.exe",
+        "opera.exe", "waterfox.exe", "zen.exe", "sumatrapdf.exe", "acrobat.exe",
+        "acrobatdc.exe", "discord.exe", "slack.exe", "telegram.exe",
+        "obsidian.exe", "steam.exe", "winword.exe", "msedgewebview2.exe",
+        "notion.exe", "logseq.exe", "notepad++.exe",
+    ]
+    for x in exes
+        if x = exe
+            return true
+    return false
+}
+
+WheelBurstToward(top) {
+    dir := top ? "WheelUp" : "WheelDown"
+    loop 36
+        SendInput "{Blind}{" dir " 2}"
+}
+
+DocumentScrollTop(*) {
+    SendInput "{Blind}^{Home}"
+    if DocumentScrollAssistActive()
+        WheelBurstToward(true)
+}
+
+DocumentScrollBottom(*) {
+    SendInput "{Blind}^{End}"
+    if DocumentScrollAssistActive()
+        WheelBurstToward(false)
+}
+
 ; Bare CapsLock absorbed. `SetCapsLockState "AlwaysOff"` at startup locks the
 ; state, but AHK's prefix-resolution can still leak a raw CapsLock tap to
 ; Windows on edge timings (fast tap with no follow-up combo) — which is what
@@ -594,6 +605,7 @@ CapsLock & h:: WinMinimize "A"
 
 CapsLock & [:: Send "{Home}"
 CapsLock & ]:: Send "{End}"
+CapsLock & Tab:: DocumentScrollTop()         ; top of document / scrollable view
 CapsLock & ,:: Send "{PgUp}"
 CapsLock & .:: Send "{PgDn}"
 
@@ -639,21 +651,16 @@ CapsLock & Enter::
 ;                        `Send "#^d"` virtual-desktop preview (Win10/11)
 ;   ` leader (~SC029 & …) second prefix layer like LWin Komorebi — quick
 ;                        settings Win+I, task mgr Ctrl+Shift+Esc, etc.
-;   Alt + Tab            you already have CapsLock+RAlt → Alt+Tab; plain Alt+Tab
-;                        is the OS default — remap only if you need Shift+Alt+Tab
-;                        or a different switcher (PowerToys) on another chord
-
 ; Tab / window / element switching  +  focus history
 ;   Win + N / M        walk BACK / FORWARD through focus history (non-cyclic)
 ;                        (N back / M forward — not related to CapsLock+m/n)
-;   *RAlt              Win+Tab  (Task View) — `*` wildcard so it still runs if
-;                        the driver holds LCtrl before RAlt (see AltGr note:
-;                        https://www.autohotkey.com/docs/v2/Hotkeys.htm#AltGr ).
-;                        Plain `RAlt::` often never fires on that stack. If
-;                        `*RAlt` ever fights AltGr+letter typing, add a backup
-;                        chord here, e.g. `CapsLock & v::TaskViewHotkey()`.
-;   CapsLock + RAlt    Alt+Tab  (window switcher)
-;   ; (held) + Tab     Shift+Tab (reverse element — same as old LAlt+Tab)
+;   *RAlt              Win+Tab (Task View) — `*` so it still runs if the driver
+;                        holds LCtrl before RAlt (AltGr note: see AHK docs).
+;   CapsLock + RAlt    Alt+Tab (window switcher)
+;   CapsLock + Tab     top — Ctrl+Home + wheel burst on browsers / common page UIs
+;   Left Alt + Tab (<!Tab)  bottom — Ctrl+End + same (replaces OS task switcher;
+;                        window switcher: CapsLock+RAlt).
+;   Physical ; (held) + Tab     Shift+Tab (reverse element)
 ;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
 ;   LAlt + n / m       move tab to start / end of bar (repeated ^+PgUp / PgDn)
@@ -833,10 +840,6 @@ Tab:: {
 CapsLock & m:: Send "^{Tab}"
 CapsLock & n:: Send "^+{Tab}"
 
-; Hunt and Peck — Alt+, / Alt+. (hap CLI)
-!,:: Hap("/hint")
-!.:: Hap("/tray")
-
 ; Komorebi  (Win-key leader — prefix style, like CapsLock)
 ;   LWin/RWin + J/K/O/I      focus   left / down / right / up
 ;   LWin/RWin + Q + …        move    (hold Q + direction)
@@ -847,7 +850,7 @@ CapsLock & n:: Send "^+{Tab}"
 ;   LWin/RWin + Enter        komorebic start
 ;   LWin/RWin + RShift       komorebic stop
 ;
-; Implemented as LWin & key / RWin & key (not #) so bare `LWin::` / `RWin::`
+; Chords registered via RegisterKomorebiWinChords (see auto-execute). Bare `LWin::` / `RWin::`
 ; can swallow a lone Win tap — Start / Search / Copilot does not open; use
 ; Flow Launcher (or your own binding) for launcher. Chords still override
 ; the usual Win+ shortcuts while the combo is pressed.
@@ -856,17 +859,6 @@ CapsLock & n:: Send "^+{Tab}"
 
 Komorebi(sub) {
     Run "komorebic.exe " sub, , "Hide"
-}
-
-Hap(args) {
-    global HAP_EXE
-    exe := HAP_EXE
-    if InStr(exe, A_Space)
-        exe := '"' exe '"'
-    try Run exe " " args, , "Hide"
-    catch {
-        Notify("Hunt and Peck: could not run " HAP_EXE " — set HAP_EXE path", 2800)
-    }
 }
 
 ; Shared handler for JKOI: Q held = move, otherwise focus.
@@ -939,9 +931,10 @@ KomorebiTouch(sub, icon, verb) {
     Notify(icon " " verb ": " HistoryTitle(id))
 }
 
-; Komorebi hotkeys: LWin and RWin each as prefix (mirrors CapsLock & …).
-;     All LWin & … before LWin:: ; all RWin & … before RWin:: — required for
-;     correct prefix-key resolution. Lone Win tap → return (no Start menu).
+; Komorebi hotkeys: LWin and RWin prefixes share one registration table
+; (RegisterKomorebiWinChords — called from auto-execute before first #HotIf).
+; Swallow Win+Q in the chord so Quick Assist / Game Bar does not fire; KomoDir
+; still reads Q via GetKeyState. Lone Win tap → return (no Start menu).
 
 KomorebiNotifyStart(*) {
     Komorebi("start")
@@ -952,49 +945,36 @@ KomorebiNotifyStop(*) {
     Notify("⏹ komorebi stop")
 }
 
-; Swallow Win+Q in the chord so Quick Assist / Game Bar does not fire; KomoDir
-; still reads Q via GetKeyState.
-LWin & q:: return
-LWin & j:: KomoDir("left")
-LWin & k:: KomoDir("down")
-LWin & o:: KomoDir("right")
-LWin & i:: KomoDir("up")
-LWin & n:: GoBackWindowHistory()
-LWin & m:: GoForwardWindowHistory()
-LWin & ,:: Komorebi("resize-axis horizontal decrease")
-LWin & .:: Komorebi("resize-axis horizontal increase")
-LWin & vkBA:: Komorebi("resize-axis vertical decrease")
-LWin & vkDE:: Komorebi("resize-axis vertical increase")
-LWin & \:: Komorebi("cycle-layout next")
-LWin & /:: Komorebi("retile")
-LWin & [:: KomorebiTouch("manage", "▣", "Tiled")
-LWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
-LWin & Enter:: KomorebiNotifyStart
-LWin & RShift:: KomorebiNotifyStop
-LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
+; Register identical LWin & … / RWin & … chords in one place (Hotkey API).
+RegisterKomorebiWinChords(*) {
+    for pre in ["LWin", "RWin"] {
+        Hotkey pre " & q", (*) => {}, "On"
+        Hotkey pre " & j", (*) => KomoDir("left"), "On"
+        Hotkey pre " & k", (*) => KomoDir("down"), "On"
+        Hotkey pre " & o", (*) => KomoDir("right"), "On"
+        Hotkey pre " & i", (*) => KomoDir("up"), "On"
+        Hotkey pre " & n", (*) => GoBackWindowHistory(), "On"
+        Hotkey pre " & m", (*) => GoForwardWindowHistory(), "On"
+        Hotkey pre " & ,", (*) => Komorebi("resize-axis horizontal decrease"), "On"
+        Hotkey pre " & .", (*) => Komorebi("resize-axis horizontal increase"), "On"
+        Hotkey pre " & vkBA", (*) => Komorebi("resize-axis vertical decrease"), "On"
+        Hotkey pre " & vkDE", (*) => Komorebi("resize-axis vertical increase"), "On"
+        Hotkey pre " & \", (*) => Komorebi("cycle-layout next"), "On"
+        Hotkey pre " & /", (*) => Komorebi("retile"), "On"
+        Hotkey pre " & [", (*) => KomorebiTouch("manage", "▣", "Tiled"), "On"
+        Hotkey pre " & ]", (*) => KomorebiTouch("toggle-float", "▢", "Floated"), "On"
+        Hotkey pre " & Enter", (*) => KomorebiNotifyStart(), "On"
+        Hotkey pre " & RShift", (*) => KomorebiNotifyStop(), "On"
+    }
+}
 
-RWin & q:: return
-RWin & j:: KomoDir("left")
-RWin & k:: KomoDir("down")
-RWin & o:: KomoDir("right")
-RWin & i:: KomoDir("up")
-RWin & n:: GoBackWindowHistory()
-RWin & m:: GoForwardWindowHistory()
-RWin & ,:: Komorebi("resize-axis horizontal decrease")
-RWin & .:: Komorebi("resize-axis horizontal increase")
-RWin & vkBA:: Komorebi("resize-axis vertical decrease")
-RWin & vkDE:: Komorebi("resize-axis vertical increase")
-RWin & \:: Komorebi("cycle-layout next")
-RWin & /:: Komorebi("retile")
-RWin & [:: KomorebiTouch("manage", "▣", "Tiled")
-RWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
-RWin & Enter:: KomorebiNotifyStart
-RWin & RShift:: KomorebiNotifyStop
+LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
 RWin:: return                                  ; swallow lone RWin — same as LWin
 
-; LAlt leader (Escape + browser).
-;     LAlt+n = strip start, LAlt+m = strip end (BrowserTabToStrip*).
+; LAlt leader (Escape, document end, browser strip). <!Tab = Left Alt+Tab → bottom
+;     (Ctrl+End + scroll assist). OS task switcher: CapsLock+RAlt.
 LAlt & CapsLock:: Send "{Escape}"
+<!Tab:: DocumentScrollBottom()                 ; bottom of document / scrollable view
 LAlt & p:: Send "!{Left}"
 LAlt & i:: Send "!{Right}"
 LAlt & u:: Send "^+{PgUp}"
@@ -1030,8 +1010,32 @@ CapsLock & Del:: Send "^{Delete}"
 ; Browser
 ;   CapsLock + 1 … 0     Ctrl+1 … Ctrl+0  (Chrome/Edge: jump to tab 1–8, 9=last
 ;                        tab, 0=reset zoom — same as native browser shortcuts)
-;   CapsLock + r/t/y     refresh / close tab / new tab
+;   CapsLock + r/t/y/z  refresh / close tab / new tab / reopen closed tab
+;                        (t/y use Ctrl+Shift+W/T in Windows Terminal)
 ;   LAlt + p/i/u/o/n/m  back / forward / move tab L-R / start / end (see LAlt block)
+
+IsWindowsTerminalFocused() {
+    try {
+        return WinActive("ahk_exe WindowsTerminal.exe")
+            || WinActive("ahk_class CASCADIA_HOSTING_WINDOW_CLASS")
+    } catch {
+        return false
+    }
+}
+
+SendCloseTabSmart(*) {
+    if IsWindowsTerminalFocused()
+        Send "^+w"
+    else
+        Send "^w"
+}
+
+SendNewTabSmart(*) {
+    if IsWindowsTerminalFocused()
+        Send "^+t"
+    else
+        Send "^t"
+}
 
 CapsLock & 1:: Send "^1"
 CapsLock & 2:: Send "^2"
@@ -1045,8 +1049,9 @@ CapsLock & 9:: Send "^9"
 CapsLock & 0:: Send "^0"
 
 CapsLock & r:: Send "^r"
-CapsLock & t:: Send "^w"
-CapsLock & y:: Send "^t"
+CapsLock & t:: SendCloseTabSmart
+CapsLock & y:: SendNewTabSmart
+CapsLock & z:: Send "^+t"
 
 ; Screenshot
 
