@@ -254,9 +254,8 @@ DragHold(btn, keyName) {
     mouseDrag := ""
 }
 
-; Komorebi: defer Win-chord registration until after this thread finishes so every
-; callback target exists. Timer form accepts SetTimer's optional name argument.
-SetTimer RegisterKomorebiWinChords, -0
+; Komorebi Win chords are static below (after KomorebiNotifyStop). Do not register
+; them via Hotkey() + SetTimer — that runs after `LWin::` / `RWin::` and breaks Win+ combos.
 
 ; Mouse mode — CapsLock+F: first chord enters; quick F release = latch; hold F
 ; past TAP_SECS then release = end hold; CapsLock+F again while active = exit.
@@ -872,7 +871,7 @@ CapsLock & n:: Send "^+{Tab}"
 ;   LWin/RWin + Enter        komorebic start
 ;   LWin/RWin + RShift       komorebic stop
 ;
-; Chords registered via RegisterKomorebiWinChords (see auto-execute). Bare `LWin::` / `RWin::`
+; Static `LWin & …` / `RWin & …` hotkeys (prefix before bare LWin:: / RWin::).
 ; can swallow a lone Win tap — Start / Search / Copilot does not open; use
 ; Flow Launcher (or your own binding) for launcher. Chords still override
 ; the usual Win+ shortcuts while the combo is pressed.
@@ -953,8 +952,7 @@ KomorebiTouch(sub, icon, verb) {
     Notify(icon " " verb ": " HistoryTitle(id))
 }
 
-; Komorebi hotkeys: LWin and RWin prefixes share one registration table
-; (RegisterKomorebiWinChords — called from auto-execute before first #HotIf).
+; Komorebi hotkeys: static LWin & … / RWin & … (must appear before bare LWin:: / RWin::).
 ; Swallow Win+Q in the chord so Quick Assist / Game Bar does not fire; KomoDir
 ; still reads Q via GetKeyState. Lone Win tap → return (no Start menu).
 
@@ -967,30 +965,42 @@ KomorebiNotifyStop(*) {
     Notify("⏹ komorebi stop")
 }
 
-; Register identical LWin & … / RWin & … chords in one place (Hotkey API).
-RegisterKomorebiWinChords(*) {
-    for pre in ["LWin", "RWin"] {
-        Hotkey pre " & q", (*) => {}, "On"
-        Hotkey pre " & j", (*) => KomoDir("left"), "On"
-        Hotkey pre " & k", (*) => KomoDir("down"), "On"
-        Hotkey pre " & o", (*) => KomoDir("right"), "On"
-        Hotkey pre " & i", (*) => KomoDir("up"), "On"
-        Hotkey pre " & n", (*) => GoBackWindowHistory(), "On"
-        Hotkey pre " & m", (*) => GoForwardWindowHistory(), "On"
-        Hotkey pre " & ,", (*) => Komorebi("resize-axis horizontal decrease"), "On"
-        Hotkey pre " & .", (*) => Komorebi("resize-axis horizontal increase"), "On"
-        Hotkey pre " & vkBA", (*) => Komorebi("resize-axis vertical decrease"), "On"
-        Hotkey pre " & vkDE", (*) => Komorebi("resize-axis vertical increase"), "On"
-        Hotkey pre " & \", (*) => Komorebi("cycle-layout next"), "On"
-        Hotkey pre " & /", (*) => Komorebi("retile"), "On"
-        Hotkey pre " & [", (*) => KomorebiTouch("manage", "▣", "Tiled"), "On"
-        Hotkey pre " & ]", (*) => KomorebiTouch("toggle-float", "▢", "Floated"), "On"
-        Hotkey pre " & Enter", (*) => KomorebiNotifyStart(), "On"
-        Hotkey pre " & RShift", (*) => KomorebiNotifyStop(), "On"
-    }
-}
-
+LWin & q:: return
+LWin & j:: KomoDir("left")
+LWin & k:: KomoDir("down")
+LWin & o:: KomoDir("right")
+LWin & i:: KomoDir("up")
+LWin & n:: GoBackWindowHistory()
+LWin & m:: GoForwardWindowHistory()
+LWin & ,:: Komorebi("resize-axis horizontal decrease")
+LWin & .:: Komorebi("resize-axis horizontal increase")
+LWin & vkBA:: Komorebi("resize-axis vertical decrease")
+LWin & vkDE:: Komorebi("resize-axis vertical increase")
+LWin & \:: Komorebi("cycle-layout next")
+LWin & /:: Komorebi("retile")
+LWin & [:: KomorebiTouch("manage", "▣", "Tiled")
+LWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
+LWin & Enter:: KomorebiNotifyStart
+LWin & RShift:: KomorebiNotifyStop
 LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
+
+RWin & q:: return
+RWin & j:: KomoDir("left")
+RWin & k:: KomoDir("down")
+RWin & o:: KomoDir("right")
+RWin & i:: KomoDir("up")
+RWin & n:: GoBackWindowHistory()
+RWin & m:: GoForwardWindowHistory()
+RWin & ,:: Komorebi("resize-axis horizontal decrease")
+RWin & .:: Komorebi("resize-axis horizontal increase")
+RWin & vkBA:: Komorebi("resize-axis vertical decrease")
+RWin & vkDE:: Komorebi("resize-axis vertical increase")
+RWin & \:: Komorebi("cycle-layout next")
+RWin & /:: Komorebi("retile")
+RWin & [:: KomorebiTouch("manage", "▣", "Tiled")
+RWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
+RWin & Enter:: KomorebiNotifyStart
+RWin & RShift:: KomorebiNotifyStop
 RWin:: return                                  ; swallow lone RWin — same as LWin
 
 ; LAlt leader (Escape, browser strip, lock). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
