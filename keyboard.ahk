@@ -19,16 +19,19 @@ SetCapsLockState "AlwaysOff"
 ; Mouse mode — CapsLock+F entry:
 ;   Quick F release = LATCH · Hold F past TAP_SECS then release = end hold session
 ;   Caps+F again while active = EXIT · Escape = EXIT
-;   Cruise = IJKL (cosine ramp) · Turbo = hold W + IJKL · Precision = hold Space + IJKL (ease-in + low cap)
+;   Cruise = IJKL (cosine ramp) · Turbo = W+IJKL (sprint ramp from cruise speed → max)
+;   Precision = Space+IJKL (ease-in). Keep MOUSE_STEP_TURBO_LO = MOUSE_STEP_CRUISE for a clean W handoff.
 MOUSE_TICK_MS := 10                         ; 100 Hz
 MOUSE_STATUS_MS := 50                         ; HUD refresh
-MOUSE_STEP_MIN := 8                          ; cruise ramp floor — light first moves
-MOUSE_STEP_CRUISE := 40                     ; cruise ceiling — slightly quicker top speed
+MOUSE_STEP_MIN := 7                          ; cruise ramp floor — soft first moves
+MOUSE_STEP_CRUISE := 36                     ; cruise plateau — controlled day-to-day speed
+MOUSE_STEP_TURBO_LO := 36                   ; must match CRUISE — W starts here then ramps to MAX
+MOUSE_STEP_MAX := 48                        ; turbo ceiling (ramp over MOUSE_TURBO_RAMP_TICKS)
+MOUSE_TURBO_RAMP_TICKS := 10
 MOUSE_STEP_PRECISION_LO := 1                  ; Space+IJKL: first ticks — single-pixel nudges
-MOUSE_STEP_PRECISION := 6                    ; Space+IJKL: steady fine aim (after ease-in)
-MOUSE_PRECISION_RAMP_TICKS := 4               ; ticks of cosine ease-in LO→HI (then hold HI)
-MOUSE_STEP_MAX := 52                         ; W + cluster — turbo sweep
-MOUSE_RAMP := 12                         ; cruise ramp ticks — smoother accel, clearer coast
+MOUSE_STEP_PRECISION := 7                    ; Space+IJKL: steady fine aim (after ease-in)
+MOUSE_PRECISION_RAMP_TICKS := 5               ; ticks of cosine ease-in LO→HI (then hold HI)
+MOUSE_RAMP := 15                         ; cruise ramp ticks — longer = calmer accel
 MOUSE_TAP_SECS := 0.25                       ; Caps+F: release F within this = LATCH, else HOLD
 
 ; Scroll / text navigation tuning.
@@ -67,7 +70,8 @@ GRID_LABEL_FG := "00FF99"
 
 mouseMode := false
 mouseLatched := false                         ; true once mouse mode was tap-latched
-mouseHoldTicks := 0                             ; ramp counter for MouseTick
+mouseHoldTicks := 0                             ; ramp counter for MouseTick (cruise + precision)
+mouseTurboTicks := 0                            ; W-tier ramp only — resets when W released
 mouseDrag := ""                            ; "" | "L" | "R"
 
 ; Focus history — ordered oldest → newest. `winViewingId` is the walk
@@ -90,8 +94,8 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ;   Entry / exit       CapsLock+F    tap<TAP_SECS on F = LATCH, else HOLD (not in grid)
 ;   Exit               CapsLock+F again · Escape
 ;   Motion             I J K L       100-Hz poller; diagonals for free
-;   Cruise             IJKL only     MIN→CRUISE (cosine ramp, MOUSE_RAMP ticks)
-;   Turbo              W + IJKL      MAX
+;   Cruise             IJKL only     MIN→CRUISE (cosine, MOUSE_RAMP) — diagonals speed-matched
+;   Turbo              W + IJKL      sprint CRUISE→MAX (MOUSE_TURBO_RAMP_TICKS, own tick counter)
 ;   Precision          Space + IJKL  cosine ease-in → low steady step
 ;   Scroll             u / o         Space = fast wheel (same key as precision tier)
 ;   Left / right drag  ; / '
@@ -110,10 +114,24 @@ MousePrecisionPhys() {
 ;
 ; Curve: cosine S-curve on r = ticks/MOUSE_RAMP. HUD bands follow the curve
 ; (longer "soft" early) instead of equal tick thirds.
-MouseTier(ticks) {
+; Turbo (W): separate mouseTurboTicks so each W+move burst gets a controlled ramp to MAX.
+MouseTier(ticks, turboTicks := 0) {
     static PI := 3.14159265358979
-    if MouseTurboPhys()
-        return { step: MOUSE_STEP_MAX, tier: "🚀 TURBO" }
+    if MouseTurboPhys() {
+        lo := MOUSE_STEP_TURBO_LO
+        hi := MOUSE_STEP_MAX
+        cap := MOUSE_TURBO_RAMP_TICKS
+        tt := turboTicks
+        if tt <= 0
+            return { step: lo, tier: "⚡ sprint" }
+        if cap > 1 && tt <= cap {
+            r := (tt - 1) / (cap - 1)
+            ratio := 0.5 * (1 - Cos(PI * r))
+            step := lo + Round((hi - lo) * ratio)
+            return { step: step, tier: "⚡ sprint" }
+        }
+        return { step: hi, tier: "🚀 max  " }
+    }
     if MousePrecisionPhys() {
         if ticks <= 0
             return { step: MOUSE_STEP_PRECISION, tier: "· precise" }
@@ -143,19 +161,27 @@ MouseTier(ticks) {
 }
 
 MouseTick() {
-    global mouseHoldTicks
+    global mouseHoldTicks, mouseTurboTicks
     if !mouseMode {
         mouseHoldTicks := 0
+        mouseTurboTicks := 0
         return
     }
     dx := (GetKeyState("l", "P") ? 1 : 0) - (GetKeyState("j", "P") ? 1 : 0)
     dy := (GetKeyState("k", "P") ? 1 : 0) - (GetKeyState("i", "P") ? 1 : 0)
     if !dx && !dy {
         mouseHoldTicks := 0
+        mouseTurboTicks := 0
         return
     }
     mouseHoldTicks += 1
-    step := MouseTier(mouseHoldTicks).step
+    if MouseTurboPhys()
+        mouseTurboTicks += 1
+    else
+        mouseTurboTicks := 0
+    step := MouseTier(mouseHoldTicks, mouseTurboTicks).step
+    if dx && dy
+        step := Max(1, Round(step * 0.70710678118))   ; match edge speed on diagonals
     MouseMove dx * step, dy * step, 0, "R"
 }
 
@@ -215,9 +241,10 @@ MouseMonitorWork(&L, &T, &R, &B) {
 ; Live HUD on tooltip slot 1. Fixed top-right of active monitor (only moves
 ; when you cross monitors). Compact: H/L hold·latch, C|P|T tier, step, dir.
 MouseStatus() {
+    global mouseHoldTicks, mouseTurboTicks
     if !mouseMode
         return
-    t := MouseTier(mouseHoldTicks)
+    t := MouseTier(mouseHoldTicks, mouseTurboTicks)
     latch := mouseLatched ? "L" : "H"
     tier := MouseHudTier()
     drag := mouseDrag = "L" ? " L" : mouseDrag = "R" ? " R" : ""
@@ -229,10 +256,11 @@ MouseStatus() {
 }
 
 EnterMouseMode(latched := false) {
-    global mouseMode, mouseLatched, mouseHoldTicks, mouseDrag
+    global mouseMode, mouseLatched, mouseHoldTicks, mouseTurboTicks, mouseDrag
     mouseMode := true
     mouseLatched := latched
     mouseHoldTicks := 0
+    mouseTurboTicks := 0
     mouseDrag := ""
     SetTimer MouseTick, MOUSE_TICK_MS
     SetTimer MouseStatus, MOUSE_STATUS_MS
@@ -242,7 +270,7 @@ EnterMouseMode(latched := false) {
 ; Auto-releases any live drag button so the system can't be left with a
 ; stuck mouse button (e.g. chord released mid-drag in HOLD mode).
 ExitMouseMode() {
-    global mouseMode, mouseLatched, mouseDrag
+    global mouseMode, mouseLatched, mouseDrag, mouseTurboTicks
     SetTimer MouseTick, 0
     SetTimer MouseStatus, 0
     if mouseDrag = "L"
@@ -252,6 +280,7 @@ ExitMouseMode() {
     mouseMode := false
     mouseLatched := false
     mouseDrag := ""
+    mouseTurboTicks := 0
     ToolTip , , , 1
 }
 
@@ -643,6 +672,7 @@ CapsLock & .:: Send "{PgDn}"
 
 CapsLock & u:: Scroll("Up")
 CapsLock & o:: Scroll("Down")
+
 CapsLock & `;:: {
     global gridActive, mouseMode
     if mouseMode
