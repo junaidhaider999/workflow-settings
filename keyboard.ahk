@@ -19,8 +19,9 @@ SetCapsLockState "AlwaysOff"
 ; Mouse mode — CapsLock+F entry:
 ;   Quick F release = LATCH · Hold F past TAP_SECS then release = end hold session
 ;   Caps+F again while active = EXIT · Escape = EXIT
-;   Cruise = IJKL (cosine ramp) · Turbo = W+IJKL (sprint ramp from cruise speed → max)
-;   Precision = Space+IJKL (ease-in). Keep MOUSE_STEP_TURBO_LO = MOUSE_STEP_CRUISE for a clean W handoff.
+;   Cruise = IJKL (mouse motion) cosine ramp · Turbo = W+IJKL · Precision = Space+IJKL
+;   (Caps+text nav uses vim HJKL separately — see hotkeys below.)
+;   Keep MOUSE_STEP_TURBO_LO = MOUSE_STEP_CRUISE for a clean W handoff from cruise.
 MOUSE_TICK_MS := 10                         ; 100 Hz
 MOUSE_STATUS_MS := 50                         ; HUD refresh
 MOUSE_STEP_MIN := 7                          ; cruise ramp floor — soft first moves
@@ -28,15 +29,15 @@ MOUSE_STEP_CRUISE := 36                     ; cruise plateau — controlled day-
 MOUSE_STEP_TURBO_LO := 36                   ; must match CRUISE — W starts here then ramps to MAX
 MOUSE_STEP_MAX := 48                        ; turbo ceiling (ramp over MOUSE_TURBO_RAMP_TICKS)
 MOUSE_TURBO_RAMP_TICKS := 10
-MOUSE_STEP_PRECISION_LO := 1                  ; Space+IJKL: first ticks — single-pixel nudges
-MOUSE_STEP_PRECISION := 7                    ; Space+IJKL: steady fine aim (after ease-in)
+MOUSE_STEP_PRECISION_LO := 1                  ; Space+IJKL (mouse): first ticks — single-pixel nudges
+MOUSE_STEP_PRECISION := 7                    ; Space+IJKL (mouse): steady fine aim (after ease-in)
 MOUSE_PRECISION_RAMP_TICKS := 5               ; ticks of cosine ease-in LO→HI (then hold HI)
 MOUSE_RAMP := 15                         ; cruise ramp ticks — longer = calmer accel
 MOUSE_TAP_SECS := 0.25                       ; Caps+F: release F within this = LATCH, else HOLD
 
 ; Scroll / text navigation tuning.
 SCROLL_NORMAL := 1, SCROLL_FAST := 5           ; wheel ticks
-VERT_BOOST := 3                              ; lines jumped per Space+I/K
+VERT_BOOST := 3                              ; lines jumped per Space+K/J (vim up/down)
 
 ; Window-history cap — oldest entries evicted first.
 WIN_HISTORY_MAX := 50
@@ -93,7 +94,7 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ; Mouse mode
 ;   Entry / exit       CapsLock+F    tap<TAP_SECS on F = LATCH, else HOLD (not in grid)
 ;   Exit               CapsLock+F again · Escape
-;   Motion             I J K L       100-Hz poller; diagonals for free
+;   Motion             I J K L       100-Hz poller (mouse cluster; diagonals for free)
 ;   Cruise             IJKL only     MIN→CRUISE (cosine, MOUSE_RAMP) — diagonals speed-matched
 ;   Turbo              W + IJKL      sprint CRUISE→MAX (MOUSE_TURBO_RAMP_TICKS, own tick counter)
 ;   Precision          Space + IJKL  cosine ease-in → low steady step
@@ -321,6 +322,7 @@ $j:: MouseTick()
 $k:: MouseTick()
 $l:: MouseTick()
 $i:: MouseTick()
+CapsLock & i:: MouseTick()               ; else Caps+i hits global WinMinimize while Caps still down from Caps+F
 $u:: Scroll("Up")
 $o:: Scroll("Down")
 $`;:: DragHold("L", ";")
@@ -574,7 +576,7 @@ CapsLock & w:: Send "{Blind}^n"               ; new window (most apps)
 ;   CapsLock + Tab     top of doc — Ctrl+Home + scroll assist (DocumentScrollTop)
 ;   LShift/RShift + Caps (Shift first)  bottom — Ctrl+End + same (DocumentScrollBottom)
 ;   CapsLock + [ / ]    Home / End   (moved from h / ;)
-;   CapsLock + h       WinMinimize active   (Home is [ / ])
+;   CapsLock + i       WinMinimize active   (Home is [ / ])
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
 ;                        menu). Mouse/grid: unchanged (drag / grid L/R).
 ;   CapsLock + LShift / \   Ctrl+Shift+P (command palette) — Caps before Shift
@@ -658,11 +660,11 @@ CapsLock:: SetCapsLockState "AlwaysOff"
 CapsLock & Space:: return
 CapsLock & d:: return
 
-CapsLock & j:: Navigate("Left")
+CapsLock & h:: Navigate("Left")
 CapsLock & l:: Navigate("Right")
-CapsLock & i:: Navigate("Up")
-CapsLock & k:: Navigate("Down")
-CapsLock & h:: WinMinimize "A"
+CapsLock & k:: Navigate("Up")
+CapsLock & j:: Navigate("Down")
+CapsLock & i:: WinMinimize "A"
 
 CapsLock & [:: Send "{Home}"
 CapsLock & ]:: Send "{End}"
