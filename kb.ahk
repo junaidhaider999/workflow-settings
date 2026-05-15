@@ -701,6 +701,7 @@ CapsLock & Enter::
 ;   Physical ; (held) + Tab     Shift+Tab (reverse element)
 ;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
+;   CapsLock + r       Firefox: ^!z sidebar; else ^r refresh
 ;   CapsLock + 1 … 8     Ctrl+1…8 (tabs 1–8); Caps+9 → ^1 (first); Caps+0 → ^9 (last)
 ;   CapsLock + g       region snip (Win+Shift+S); Caps+p = full-window screenshot
 ;   CapsLock + s       maximize ↔ restore toggle
@@ -1021,7 +1022,8 @@ CapsLock & Del:: Send "^{Delete}"
 ; Browser
 ;   CapsLock + 1 … 8     Ctrl+1 … Ctrl+8  (Chrome/Edge: tabs 1–8)
 ;   CapsLock + 9 / 0     first tab / last tab  (^1 / ^9 — Chrome/Edge last = Ctrl+9)
-;   CapsLock + r/y/t/i/z  refresh / new tab / close tab / reopen closed / minimize
+;   CapsLock + r/y/t/i/z  Firefox: r = Ctrl+Alt+Z (sidebar); elsewhere r = refresh (^r).
+;                        y/t/i/z = new / close / reopen / minimize
 ;                        (close: Ctrl+Shift+W in WT; reopen: Ctrl+Alt+T in WT — bind
 ;                        action restoreLastClosed to ctrl+alt+t; stock WT uses
 ;                        Ctrl+Shift+T for new tab only)
@@ -1033,6 +1035,21 @@ IsWindowsTerminalFocused() {
     } catch {
         return false
     }
+}
+
+IsFirefoxFocused() {
+    try {
+        return StrLower(WinGetProcessName("A")) = "firefox.exe"
+    } catch {
+        return false
+    }
+}
+
+SendCapsRSmart(*) {
+    if IsFirefoxFocused()
+        Send "^!z"                             ; Firefox: toggle sidebar (native)
+    else
+        Send "^r"                             ; refresh (non-Firefox)
 }
 
 SendCloseTabSmart(*) {
@@ -1070,7 +1087,7 @@ CapsLock & 8:: Send "^8"
 CapsLock & 9:: Send "^1"                         ; physical 9 → first tab
 CapsLock & 0:: Send "^9"                         ; physical 0 → last tab (Chrome/Edge)
 
-CapsLock & r:: Send "^r"
+CapsLock & r:: SendCapsRSmart
 CapsLock & y:: SendNewTabSmart
 CapsLock & t:: SendCloseTabSmart()
 CapsLock & i:: SendReopenClosedTabSmart()
