@@ -91,6 +91,12 @@ gridActive := false
 gridRectStack := []
 gridPool := []                             ; [{g,t}, …] built lazily
 
+; Four layers the script is built around (only one overlay at a time for 1–2):
+;   1) Mouse mode      #HotIf mouseMode — Caps+F pointer / IJKL
+;   2) Grid mode       #HotIf gridActive — Caps+/ keynav overlay
+;   3) Komorebi mode   LWin+… — komorebic tiling (static chords; lone LWin swallowed)
+;   4) Window history  TrackFocus timer + Caps+, . (GoBack/ForwardWindowHistory)
+
 ; Mouse mode
 ;   Entry / exit       CapsLock+F    tap<TAP_SECS on F = LATCH, else HOLD (not in grid)
 ;   Exit               CapsLock+F again · Escape
@@ -299,7 +305,7 @@ DragHold(btn, keyName) {
 }
 
 ; Komorebi Win chords are static below (after KomorebiNotifyStop). Do not register
-; them via Hotkey() + SetTimer — that runs after `LWin::` / `RWin::` and breaks Win+ combos.
+; them via Hotkey() + SetTimer — that runs after `LWin::` and breaks Win+ combos.
 
 ; Mouse mode — CapsLock+F: first chord enters; quick F release = latch; hold F
 ; past TAP_SECS then release = end hold; CapsLock+F again while active = exit.
@@ -322,7 +328,10 @@ $j:: MouseTick()
 $k:: MouseTick()
 $l:: MouseTick()
 $i:: MouseTick()
-CapsLock & i:: MouseTick()               ; else Caps+i hits global WinMinimize while Caps still down from Caps+F
+CapsLock & i:: MouseTick()               ; else Caps+i would hit global reopen-tab while Caps still down from Caps+F
+CapsLock & t:: SendCloseTabSmart()
+CapsLock & ,:: return
+CapsLock & .:: return
 $u:: Scroll("Up")
 $o:: Scroll("Down")
 $`;:: DragHold("L", ";")
@@ -346,7 +355,7 @@ $Escape:: ExitMouseMode()
 ;   Right click        '                centre right-click — same as mouse '
 ;   Space              grid: absorbed · mouse mode: precision tier (absorbed)
 ;   Undo zoom          Backspace        pop one level back up the zoom stack
-;   Cancel             Escape · LAlt+Caps (either order)  dismiss / same as global Esc chord
+;   Cancel             Escape · LAlt+Caps (Alt before Caps)  dismiss / same as global Esc chord
 ;
 ; Each zoom narrows the active rect to one ninth of the current area; after
 ; three zooms a 1920×1080 cell is ~71×40 px and after four it's ~24×13 px.
@@ -460,9 +469,8 @@ EndGridNav() {
     }
 }
 
-; LAlt+Caps sends Escape globally, but `LAlt & CapsLock` only matches Alt-then-Caps.
-; After Caps+/ the physical order is often Caps-then-Alt — use `CapsLock & LAlt` too.
-; When the grid is up, close it here; `*Escape` does not run for this chord order.
+; LAlt+Caps (Alt held first, then CapsLock) sends Escape globally, or dismisses
+; the grid overlay. Caps-then-Alt is not bound — use Escape or end grid another way.
 LAltCapsEscChord() {
     global gridActive
     if gridActive
@@ -556,9 +564,13 @@ CapsLock & d:: GridZoom(6)
 CapsLock & z:: GridZoom(7)
 CapsLock & x:: GridZoom(8)
 CapsLock & c:: GridZoom(9)
-CapsLock & Tab:: return                         ; avoid ^Home while grid overlay is up
-LShift & CapsLock:: return                      ; avoid bottom scroll while grid overlay is up
+CapsLock & Tab:: return                         ; absorb while grid overlay is up
+LShift & CapsLock:: return                      ; absorb while grid overlay is up
 RShift & CapsLock:: return
+CapsLock & ,:: return
+CapsLock & .:: return
+CapsLock & t:: SendCloseTabSmart()
+CapsLock & i:: SendReopenClosedTabSmart()
 $Space:: return                                  ; absorb — same slot as mouse Space tier
 $vkBA:: GridClick("L")
 $':: GridClick("R")
@@ -570,17 +582,17 @@ $Backspace:: GridUndoZoom()
 
 #HotIf !gridActive && !mouseMode
 CapsLock & w:: Send "{Blind}^n"               ; new window (most apps)
+CapsLock & ,:: GoBackWindowHistory()
+CapsLock & .:: GoForwardWindowHistory()
 #HotIf
 
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
-;   CapsLock + Tab     top of doc — Ctrl+Home + scroll assist (DocumentScrollTop)
-;   LShift/RShift + Caps (Shift first)  bottom — Ctrl+End + same (DocumentScrollBottom)
-;   CapsLock + [ / ]    Home / End   (moved from h / ;)
-;   CapsLock + i       WinMinimize active   (Home is [ / ])
+;   CapsLock + h/j/k/l  vim arrows (Navigate); d→Shift, Space→Ctrl; Space+Up/Down = VERT_BOOST
+;   CapsLock + [ / ]    browser back / forward (!{Left} / !{Right} — was LAlt+p / LAlt+i)
+;   CapsLock + , / .    window history back / forward (only when not mouse/grid)
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
 ;                        menu). Mouse/grid: unchanged (drag / grid L/R).
 ;   CapsLock + LShift / \   Ctrl+Shift+P (command palette) — Caps before Shift
-;   LShift/RShift + Caps (Shift first)  bottom of doc — DocumentScrollBottom (see hotkeys below)
 
 ; In mouse mode: trigger motion immediately (zero-latency first move); the
 ; timer then continues the ramp. Outside mouse mode: send the arrow,
@@ -606,45 +618,11 @@ Scroll(dir) {
     Send "{Wheel" dir " " (GetKeyState("Space", "P") ? SCROLL_FAST : SCROLL_NORMAL) "}"
 }
 
-; Caps+Tab (top) / Shift+Caps bottom: Ctrl+Home / Ctrl+End first, then (on known hosts)
-; batched wheel — same assist. Shift must be pressed *before* Caps (see LShift & CapsLock).
-DocumentScrollAssistActive() {
-    exe := ""
-    try exe := StrLower(WinGetProcessName("A"))
-    catch
-        return false
-    static exes := [
-        "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "vivaldi.exe",
-        "opera.exe", "waterfox.exe", "zen.exe", "sumatrapdf.exe", "acrobat.exe",
-        "acrobatdc.exe", "discord.exe", "slack.exe", "telegram.exe",
-        "obsidian.exe", "steam.exe", "winword.exe", "msedgewebview2.exe",
-        "notion.exe", "logseq.exe", "notepad++.exe",
-    ]
-    for x in exes
-        if x = exe
-            return true
-    return false
-}
-
-WheelBurstToward(top) {
-    dir := top ? "WheelUp" : "WheelDown"
-    loop 36
-        SendInput "{Blind}{" dir " 2}"
-}
-
-DocumentScrollTop(*) {
-    SendInput "{Blind}^{Home}"
-    if DocumentScrollAssistActive()
-        WheelBurstToward(true)
-}
-
-DocumentScrollBottom(*) {
-    global mouseMode
-    if mouseMode
-        return
-    SendInput "{Blind}^{End}"
-    if DocumentScrollAssistActive()
-        WheelBurstToward(false)
+ToggleMaximizeActive() {
+    if WinGetMinMax("A") = 1
+        WinRestore "A"
+    else
+        WinMaximize "A"
 }
 
 ; Bare CapsLock absorbed. `SetCapsLockState "AlwaysOff"` at startup locks the
@@ -664,13 +642,10 @@ CapsLock & h:: Navigate("Left")
 CapsLock & l:: Navigate("Right")
 CapsLock & k:: Navigate("Up")
 CapsLock & j:: Navigate("Down")
-CapsLock & i:: WinMinimize "A"
+CapsLock & z:: WinMinimize "A"
 
-CapsLock & [:: Send "{Home}"
-CapsLock & ]:: Send "{End}"
-CapsLock & Tab:: DocumentScrollTop()         ; top of document / scrollable view
-CapsLock & ,:: Send "{PgUp}"
-CapsLock & .:: Send "{PgDn}"
+CapsLock & [:: Send "!{Left}"
+CapsLock & ]:: Send "!{Right}"
 
 CapsLock & u:: Scroll("Up")
 CapsLock & o:: Scroll("Down")
@@ -696,9 +671,7 @@ CapsLock & ':: {
 
 CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS Code)
 CapsLock & RShift:: Send "{Blind}^p"            ; fuzzy Quick Open / file finder (Ctrl+P)
-; Bottom of doc: hold Shift first, then CapsLock (not CapsLock & LShift — that is ^+p above).
-LShift & CapsLock:: DocumentScrollBottom()
-RShift & CapsLock:: DocumentScrollBottom()
+; Bottom of doc: Shift-first + Caps is free for a future binding.
 CapsLock & \:: Send "{Blind}^+p"
 ; Ditto (clipboard): Caps+Enter → Ctrl+` (same as Ditto’s default hotkey).
 CapsLock & Enter::
@@ -710,7 +683,7 @@ CapsLock & Enter::
 
 ; Chord ideas (unbound or absorb-only; pick what you use)
 ;   CapsLock + Enter     bound above → Ditto (Ctrl+`)
-;   CapsLock + RShift    bound above → Ctrl+P Quick Open; Komorebi uses RWin+RShift
+;   CapsLock + RShift    bound above → Ctrl+P Quick Open; Komorebi uses LWin+RShift
 ;                        for komorebic stop — different chord
 ;   Shift + Enter        app-specific (Ctrl+Enter submit in chat); global is
 ;                        risky — prefer #HotIf WinActive(...) if you add it
@@ -719,25 +692,22 @@ CapsLock & Enter::
 ;   ` leader (~SC029 & …) second prefix layer like LWin Komorebi — quick
 ;                        settings Win+I, task mgr Ctrl+Shift+Esc, etc.
 ; Tab / window / element switching  +  focus history
-;   Win + N / M        walk BACK / FORWARD through focus history (non-cyclic)
-;                        (N back / M forward — not related to CapsLock+m/n)
+;   CapsLock + , / .   window history back / forward (when not mouse/grid — see #HotIf)
 ;   *RAlt              Win+Tab (Task View) when Left Alt is *not* held — `*` for
 ;                        AltGr stack (see AHK docs). If LAlt is down first, RAlt
 ;                        is reserved for LAlt+RAlt lock instead of Task View.
 ;   LAlt + RAlt        lock workstation (LockWorkStation) — press LAlt first, then RAlt.
-;   CapsLock + Tab     top — Ctrl+Home + wheel assist (same list as bottom)
-;   LShift/RShift + Caps (Shift first)  bottom — Ctrl+End + same (Alt+Tab is OS default)
 ;   CapsLock + RAlt    Alt+Tab (window switcher)
 ;   Physical ; (held) + Tab     Shift+Tab (reverse element)
 ;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
-;   LAlt + n / m       move tab to start / end of bar (repeated ^+PgUp / PgDn)
-;   CapsLock + 1…0     Ctrl+1…0  (jump to tab by index — Browser section)
-;   CapsLock + g       WinMaximize / WinRestore (toggle on active)
+;   CapsLock + 1 … 8     Ctrl+1…8 (tabs 1–8); Caps+9 → ^1 (first); Caps+0 → ^9 (last)
+;   CapsLock + g       region snip (Win+Shift+S); Caps+p = full-window screenshot
+;   CapsLock + s       maximize ↔ restore toggle
 ;   CapsLock + b       Win+D    (Show Desktop)
 ;
-; Win+N / Win+M override shell shortcuts (e.g. Win+M minimize-all, Win+N
-; notifications) while this script runs — same trade-off as other Win chords.
+; LWin+N / LWin+M are swallowed (no-op) so they do not trigger shell shortcuts;
+; same trade-off as other swallowed Win chords.
 
 ; Holds `mod` for 8 ms so Windows' shell hook (Win+Tab, Alt+Tab) latches
 ; before `key` arrives — otherwise `key` can leak to the focused app.
@@ -766,23 +736,6 @@ TaskViewHotkey() {
 LockWorkstation(*) {
     if !DllCall("LockWorkStation")
         Notify("Lock: LockWorkStation failed", 2200)
-}
-
-; Move current browser tab to far left / far right of the strip. Chrome/Edge
-; ignore Ctrl+Shift+Home/End for tabs; they use Ctrl+Shift+PgUp/PgDn per step.
-; Repeating that walks the tab to the end (extra steps are harmless at the edge).
-BrowserTabToStripStart() {
-    loop 30 {
-        SendInput "^+{PgUp}"
-        Sleep 10
-    }
-}
-
-BrowserTabToStripEnd() {
-    loop 30 {
-        SendInput "^+{PgDn}"
-        Sleep 10
-    }
 }
 
 HistoryTitle(id) {
@@ -918,18 +871,19 @@ Tab:: {
 CapsLock & m:: Send "^{Tab}"
 CapsLock & n:: Send "^+{Tab}"
 
-; Komorebi  (Win-key leader — prefix style, like CapsLock)
-;   LWin/RWin + J/K/O/I      focus   left / down / right / up
-;   LWin/RWin + Q + …        move    (hold Q + direction)
-;   LWin/RWin + , / .        resize  horizontal -/+
-;   LWin/RWin + vkBA / vkDE  resize  vertical -/+  (; and ' keys)
-;   LWin/RWin + [ / ]        manage / toggle-float
-;   LWin/RWin + \ /          cycle-layout / retile
-;   LWin/RWin + Enter        komorebic start
-;   LWin/RWin + RShift       komorebic stop
+; Komorebi  (LWin leader — prefix style, like CapsLock; no right-Win mirror)
+;   LWin + J/K/O/I      focus   left / down / right / up
+;   LWin + Q + …        move    (hold Q + direction)
+;   LWin + , / .        resize  horizontal -/+
+;   LWin + vkBA / vkDE  resize  vertical -/+  (; and ' keys)
+;   LWin + [ / ]        manage / toggle-float
+;   LWin + \ /          cycle-layout / retile
+;   LWin + Enter        komorebic start
+;   LWin + RShift       komorebic stop
+;   LWin + N / M        swallowed (reserved; window history is Caps+, .)
 ;
-; Static `LWin & …` / `RWin & …` hotkeys (prefix before bare LWin:: / RWin::).
-; can swallow a lone Win tap — Start / Search / Copilot does not open; use
+; Static `LWin & …` hotkeys (prefix before bare `LWin::`). Bare `LWin::` swallows
+; a lone Win tap — Start / Search / Copilot does not open; use
 ; Flow Launcher (or your own binding) for launcher. Chords still override
 ; the usual Win+ shortcuts while the combo is pressed.
 ;
@@ -1009,9 +963,9 @@ KomorebiTouch(sub, icon, verb) {
     Notify(icon " " verb ": " HistoryTitle(id))
 }
 
-; Komorebi hotkeys: static LWin & … / RWin & … (must appear before bare LWin:: / RWin::).
-; Swallow Win+Q in the chord so Quick Assist / Game Bar does not fire; KomoDir
-; still reads Q via GetKeyState. Lone Win tap → return (no Start menu).
+; Komorebi hotkeys: static LWin & … (must appear before bare LWin::). No RWin mirror
+; (single Win key). Swallow Win+Q so Quick Assist / Game Bar does not fire; KomoDir
+; still reads Q via GetKeyState. Lone LWin tap → return (no Start menu).
 
 KomorebiNotifyStart(*) {
     Komorebi("start")
@@ -1027,8 +981,8 @@ LWin & j:: KomoDir("left")
 LWin & k:: KomoDir("down")
 LWin & o:: KomoDir("right")
 LWin & i:: KomoDir("up")
-LWin & n:: GoBackWindowHistory()
-LWin & m:: GoForwardWindowHistory()
+LWin & n:: return
+LWin & m:: return
 LWin & ,:: Komorebi("resize-axis horizontal decrease")
 LWin & .:: Komorebi("resize-axis horizontal increase")
 LWin & vkBA:: Komorebi("resize-axis vertical decrease")
@@ -1041,45 +995,13 @@ LWin & Enter:: KomorebiNotifyStart
 LWin & RShift:: KomorebiNotifyStop
 LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
 
-RWin & q:: return
-RWin & j:: KomoDir("left")
-RWin & k:: KomoDir("down")
-RWin & o:: KomoDir("right")
-RWin & i:: KomoDir("up")
-RWin & n:: GoBackWindowHistory()
-RWin & m:: GoForwardWindowHistory()
-RWin & ,:: Komorebi("resize-axis horizontal decrease")
-RWin & .:: Komorebi("resize-axis horizontal increase")
-RWin & vkBA:: Komorebi("resize-axis vertical decrease")
-RWin & vkDE:: Komorebi("resize-axis vertical increase")
-RWin & \:: Komorebi("cycle-layout next")
-RWin & /:: Komorebi("retile")
-RWin & [:: KomorebiTouch("manage", "▣", "Tiled")
-RWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
-RWin & Enter:: KomorebiNotifyStart
-RWin & RShift:: KomorebiNotifyStop
-RWin:: return                                  ; swallow lone RWin — same as LWin
-
-; LAlt leader (Escape, browser strip, lock). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
+; LAlt leader (Escape via LAlt+Caps only, lock). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
 LAlt & CapsLock:: LAltCapsEscChord()
-CapsLock & LAlt:: LAltCapsEscChord()
 LAlt & RAlt:: LockWorkstation()
-LAlt & p:: Send "!{Left}"
-LAlt & i:: Send "!{Right}"
-LAlt & u:: Send "^+{PgUp}"
-LAlt & o:: Send "^+{PgDn}"
-LAlt & n:: BrowserTabToStripStart()
-LAlt & m:: BrowserTabToStripEnd()
 
-; Window management — Caps+g toggles maximize ↔ restore on active window.
+; Window management — Caps+s toggles maximize ↔ restore. Caps+g = region snip (Win+Shift+S).
 
-CapsLock & g::
-{
-    if WinGetMinMax("A") = 1
-        WinRestore "A"
-    else
-        WinMaximize "A"
-}
+CapsLock & g:: Send "#+s"                         ; Snipping overlay; full window: Caps+P
 CapsLock & c:: WinClose "A"
 CapsLock & b:: Send "#d"
 
@@ -1091,17 +1013,18 @@ CapsLock & q:: Send "^c"
 CapsLock & v:: Send "^x"
 CapsLock & e:: Send "^v"
 CapsLock & a:: Send "^a"
-CapsLock & s:: Send "^s"
+CapsLock & s:: ToggleMaximizeActive()
 CapsLock & x:: Send "{Delete}"
 CapsLock & Backspace:: Send "^{Backspace}"
 CapsLock & Del:: Send "^{Delete}"
 
 ; Browser
-;   CapsLock + 1 … 0     Ctrl+1 … Ctrl+0  (Chrome/Edge: jump to tab 1–8, 9=last
-;                        tab, 0=reset zoom — same as native browser shortcuts)
-;   CapsLock + r/t/y/z  refresh / close tab / new tab / reopen closed tab
-;                        (t/y use Ctrl+Shift+W/T in Windows Terminal)
-;   LAlt + p/i/u/o/n/m  back / forward / move tab L-R / start / end (see LAlt block)
+;   CapsLock + 1 … 8     Ctrl+1 … Ctrl+8  (Chrome/Edge: tabs 1–8)
+;   CapsLock + 9 / 0     first tab / last tab  (^1 / ^9 — Chrome/Edge last = Ctrl+9)
+;   CapsLock + r/y/t/i/z  refresh / new tab / close tab / reopen closed / minimize
+;                        (close: Ctrl+Shift+W in WT; reopen: Ctrl+Alt+T in WT — bind
+;                        action restoreLastClosed to ctrl+alt+t; stock WT uses
+;                        Ctrl+Shift+T for new tab only)
 
 IsWindowsTerminalFocused() {
     try {
@@ -1126,6 +1049,16 @@ SendNewTabSmart(*) {
         Send "^t"
 }
 
+; Browsers: Ctrl+Shift+T = reopen last closed tab. Windows Terminal defaults use
+; Ctrl+Shift+T for *new* tab; bind `restoreLastClosed` to Ctrl+Alt+T in settings.json
+; so this branch can restore without conflicting with SendNewTabSmart.
+SendReopenClosedTabSmart(*) {
+    if IsWindowsTerminalFocused()
+        Send "^!t"
+    else
+        Send "^+t"
+}
+
 CapsLock & 1:: Send "^1"
 CapsLock & 2:: Send "^2"
 CapsLock & 3:: Send "^3"
@@ -1134,13 +1067,13 @@ CapsLock & 5:: Send "^5"
 CapsLock & 6:: Send "^6"
 CapsLock & 7:: Send "^7"
 CapsLock & 8:: Send "^8"
-CapsLock & 9:: Send "^9"
-CapsLock & 0:: Send "^0"
+CapsLock & 9:: Send "^1"                         ; physical 9 → first tab
+CapsLock & 0:: Send "^9"                         ; physical 0 → last tab (Chrome/Edge)
 
 CapsLock & r:: Send "^r"
-CapsLock & t:: SendCloseTabSmart
 CapsLock & y:: SendNewTabSmart
-CapsLock & z:: Send "^+t"
+CapsLock & t:: SendCloseTabSmart()
+CapsLock & i:: SendReopenClosedTabSmart()
 
 ; Screenshot
 
