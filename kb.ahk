@@ -23,7 +23,6 @@ SetCapsLockState "AlwaysOff"
 ;   (Caps+text nav uses vim HJKL separately — see hotkeys below.)
 ;   Keep MOUSE_STEP_TURBO_LO = MOUSE_STEP_CRUISE for a clean W handoff from cruise.
 MOUSE_TICK_MS := 10                         ; 100 Hz
-MOUSE_STATUS_MS := 50                         ; HUD refresh
 MOUSE_STEP_MIN := 7                          ; cruise ramp floor — soft first moves
 MOUSE_STEP_CRUISE := 36                     ; cruise plateau — controlled day-to-day speed
 MOUSE_STEP_TURBO_LO := 36                   ; must match CRUISE — W starts here then ramps to MAX
@@ -106,7 +105,6 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ;   Precision          Space + IJKL  cosine ease-in → low steady step
 ;   Scroll             u / o         Space = fast wheel (same key as precision tier)
 ;   Left / right drag  ; / '
-;   HUD                H/L + C|P|T   (cruise · precise · turbo)
 
 MouseTurboPhys() {
     return GetKeyState("w", "P")
@@ -116,12 +114,7 @@ MousePrecisionPhys() {
     return GetKeyState("Space", "P")
 }
 
-; Single source of truth for "what speed / tier name apply right now".
-; Both the motion poller and the HUD call this so they can never disagree.
-;
-; Curve: cosine S-curve on r = ticks/MOUSE_RAMP. HUD bands follow the curve
-; (longer "soft" early) instead of equal tick thirds.
-; Turbo (W): separate mouseTurboTicks so each W+move burst gets a controlled ramp to MAX.
+; Single source of truth for motion speed (MouseTick reads `.step` only).
 MouseTier(ticks, turboTicks := 0) {
     static PI := 3.14159265358979
     if MouseTurboPhys() {
@@ -192,76 +185,6 @@ MouseTick() {
     MouseMove dx * step, dy * step, 0, "R"
 }
 
-; Narrow █/░ bar for HUD (default 5 segments — compact).
-MakeBar(pct, segments := 5) {
-    seg := Max(1, segments)
-    filled := Max(0, Min(seg, Round(pct * seg)))
-    s := ""
-    loop filled
-        s .= "█"
-    loop seg - filled
-        s .= "░"
-    return s
-}
-
-; Compact arrow reflecting the currently-pressed IJKL direction(s) for the HUD.
-; Read physically so diagonals show as corner arrows.
-MouseDir() {
-    dx := (GetKeyState("l", "P") ? 1 : 0) - (GetKeyState("j", "P") ? 1 : 0)
-    dy := (GetKeyState("k", "P") ? 1 : 0) - (GetKeyState("i", "P") ? 1 : 0)
-    switch dx "," dy {
-        case "-1,-1": return "↖"
-        case "0,-1": return "↑"
-        case "1,-1": return "↗"
-        case "-1,0": return "←"
-        case "1,0": return "→"
-        case "-1,1": return "↙"
-        case "0,1": return "↓"
-        case "1,1": return "↘"
-        default: return "·"
-    }
-}
-
-; Tier tag for compact HUD (must match MouseTier priority).
-MouseHudTier() {
-    if MouseTurboPhys()
-        return "T"
-    if MousePrecisionPhys()
-        return "P"
-    return "C"
-}
-
-; Work area of the monitor under the cursor (primary if unknown). Used to
-; anchor the mouse HUD so it does not follow every cursor pixel.
-MouseMonitorWork(&L, &T, &R, &B) {
-    MouseGetPos &mx, &my
-    loop MonitorGetCount() {
-        MonitorGet A_Index, &mL, &mT, &mR, &mB
-        if (mx >= mL && mx < mR && my >= mT && my < mB) {
-            MonitorGetWorkArea A_Index, &L, &T, &R, &B
-            return
-        }
-    }
-    MonitorGetWorkArea 1, &L, &T, &R, &B
-}
-
-; Live HUD on tooltip slot 1. Fixed top-right of active monitor (only moves
-; when you cross monitors). Compact: H/L hold·latch, C|P|T tier, step, dir.
-MouseStatus() {
-    global mouseHoldTicks, mouseTurboTicks
-    if !mouseMode
-        return
-    t := MouseTier(mouseHoldTicks, mouseTurboTicks)
-    latch := mouseLatched ? "L" : "H"
-    tier := MouseHudTier()
-    drag := mouseDrag = "L" ? " L" : mouseDrag = "R" ? " R" : ""
-    bar := MakeBar(t.step / MOUSE_STEP_MAX, 5)
-    MouseMonitorWork(&wl, &wt, &wr, &wb)
-    tipX := wr - 168
-    tipY := wt + 4
-    ToolTip Format("{1} {2} {3} {4} {5}{6}", latch, tier, t.step, MouseDir(), bar, drag), tipX, tipY, 1
-}
-
 EnterMouseMode(latched := false) {
     global mouseMode, mouseLatched, mouseHoldTicks, mouseTurboTicks, mouseDrag
     mouseMode := true
@@ -270,8 +193,6 @@ EnterMouseMode(latched := false) {
     mouseTurboTicks := 0
     mouseDrag := ""
     SetTimer MouseTick, MOUSE_TICK_MS
-    SetTimer MouseStatus, MOUSE_STATUS_MS
-    MouseStatus()                               ; render immediately; don't wait for the first tick
 }
 
 ; Auto-releases any live drag button so the system can't be left with a
@@ -279,7 +200,6 @@ EnterMouseMode(latched := false) {
 ExitMouseMode() {
     global mouseMode, mouseLatched, mouseDrag, mouseTurboTicks
     SetTimer MouseTick, 0
-    SetTimer MouseStatus, 0
     if mouseDrag = "L"
         Click "Left Up"
     else if mouseDrag = "R"
@@ -288,7 +208,6 @@ ExitMouseMode() {
     mouseLatched := false
     mouseDrag := ""
     mouseTurboTicks := 0
-    ToolTip , , , 1
 }
 
 ; Tap = click, hold = drag. Re-entry guard prevents overlapping chords
@@ -564,7 +483,6 @@ CapsLock & d:: GridZoom(6)
 CapsLock & z:: GridZoom(7)
 CapsLock & x:: GridZoom(8)
 CapsLock & c:: GridZoom(9)
-CapsLock & Tab:: return                         ; absorb while grid overlay is up
 LShift & CapsLock:: return                      ; absorb while grid overlay is up
 RShift & CapsLock:: return
 CapsLock & ,:: return
@@ -701,7 +619,7 @@ CapsLock & Enter::
 ;   Physical ; (held) + Tab     Shift+Tab (reverse element)
 ;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
-;   CapsLock + r       Firefox: ^!z sidebar; else ^r refresh
+;   CapsLock + r       Ctrl+L  (everywhere — e.g. address bar in browsers)
 ;   CapsLock + 1 … 8     Ctrl+1…8 (tabs 1–8); Caps+9 → ^1 (first); Caps+0 → ^9 (last)
 ;   CapsLock + g       region snip (Win+Shift+S); Caps+p = full-window screenshot
 ;   CapsLock + s       maximize ↔ restore toggle
@@ -718,8 +636,8 @@ ShellCombo(mod, key) {
     Send "{" key "}{" mod " up}"
 }
 
-; Transient tooltip on slot 2 (mouse HUD owns slot 1). A named clearer
-; avoids creating an anonymous closure on every call.
+; Transient tooltip on slot 2. A named clearer avoids creating an anonymous
+; closure on every call.
 Notify(text, ms := 1200) {
     ToolTip text, , , 2
     SetTimer ClearNotify, -ms
@@ -1022,8 +940,8 @@ CapsLock & Del:: Send "^{Delete}"
 ; Browser
 ;   CapsLock + 1 … 8     Ctrl+1 … Ctrl+8  (Chrome/Edge: tabs 1–8)
 ;   CapsLock + 9 / 0     first tab / last tab  (^1 / ^9 — Chrome/Edge last = Ctrl+9)
-;   CapsLock + r/y/t/i/z  Firefox: r = Ctrl+Alt+Z (sidebar); elsewhere r = refresh (^r).
-;                        y/t/i/z = new / close / reopen / minimize
+;   CapsLock + r         Ctrl+L  (all apps — omnibox / location bar in browsers)
+;   CapsLock + y/t/i/z  new tab / close tab / reopen closed / minimize
 ;                        (close: Ctrl+Shift+W in WT; reopen: Ctrl+Alt+T in WT — bind
 ;                        action restoreLastClosed to ctrl+alt+t; stock WT uses
 ;                        Ctrl+Shift+T for new tab only)
@@ -1035,21 +953,6 @@ IsWindowsTerminalFocused() {
     } catch {
         return false
     }
-}
-
-IsFirefoxFocused() {
-    try {
-        return StrLower(WinGetProcessName("A")) = "firefox.exe"
-    } catch {
-        return false
-    }
-}
-
-SendCapsRSmart(*) {
-    if IsFirefoxFocused()
-        Send "^!z"                             ; Firefox: toggle sidebar (native)
-    else
-        Send "^r"                             ; refresh (non-Firefox)
 }
 
 SendCloseTabSmart(*) {
@@ -1087,7 +990,7 @@ CapsLock & 8:: Send "^8"
 CapsLock & 9:: Send "^1"                         ; physical 9 → first tab
 CapsLock & 0:: Send "^9"                         ; physical 0 → last tab (Chrome/Edge)
 
-CapsLock & r:: SendCapsRSmart
+CapsLock & r:: SendInput "^l"                    ; Ctrl+L (e.g. focus address bar)
 CapsLock & y:: SendNewTabSmart
 CapsLock & t:: SendCloseTabSmart()
 CapsLock & i:: SendReopenClosedTabSmart()
