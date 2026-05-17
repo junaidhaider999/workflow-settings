@@ -41,13 +41,6 @@ VERT_BOOST := 3                              ; lines jumped per Space+K/J (vim u
 ; Window-history cap — oldest entries evicted first.
 WIN_HISTORY_MAX := 50
 
-; Komorebi: also WinMaximize after toggle-float? Off because komorebi builds
-; disagree on whether the reposition-then-maximize interaction is clean
-; (symptoms ranged from stale-max flag to stack-at-same-slot). Flip to `true`
-; to retry; the ForceMaximize + IsRealAppWindow helpers below stay in place
-; inert so re-enabling is a single-line change.
-FLOAT_MAXIMIZE := false
-
 ; Grid-navigation tuning.
 ;   GRID_KEYS            : 3×3 cell labels, row-major (qwerty home-row block)
 ;   GRID_MIN_CELL_PX     : minimum cell edge length (w OR h) that still gets
@@ -93,8 +86,8 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ; Four layers the script is built around (only one overlay at a time for 1–2):
 ;   1) Mouse mode      #HotIf mouseMode — Caps+F pointer / IJKL
 ;   2) Grid mode       #HotIf gridActive — Caps+/ keynav overlay
-;   3) Komorebi mode   LWin+… — komorebic tiling (static chords; lone LWin swallowed)
-;   4) Window history  TrackFocus timer + Caps+, . or LAlt+J/K (GoBack/ForwardWindowHistory)
+;   3) Window history  TrackFocus timer + Caps+, . / LAlt+J/K; Caps+RAlt reverse;
+;                      LAlt+RAlt clear
 
 ; Mouse mode
 ;   Entry / exit       CapsLock+F    tap<TAP_SECS on F = LATCH, else HOLD (not in grid)
@@ -222,9 +215,6 @@ DragHold(btn, keyName) {
     Click (btn = "L" ? "Left Up" : "Right Up")
     mouseDrag := ""
 }
-
-; Komorebi Win chords are static below (after KomorebiNotifyStop). Do not register
-; them via Hotkey() + SetTimer — that runs after `LWin::` and breaks Win+ combos.
 
 ; Mouse mode — CapsLock+F: first chord enters; quick F release = latch; hold F
 ; past TAP_SECS then release = end hold; CapsLock+F again while active = exit.
@@ -510,7 +500,7 @@ LAlt & k:: GoForwardWindowHistory()
 ;   CapsLock + h/j/k/l  vim arrows (Navigate); d→Shift, Space→Ctrl; Space+Up/Down = VERT_BOOST
 ;   CapsLock + [ / ]    browser back / forward (!{Left} / !{Right} — was LAlt+p / LAlt+i)
 ;   CapsLock + , / .    window history back / forward (only when not mouse/grid)
-;   LAlt + J / K        same history back / forward (same #HotIf)
+;   LAlt + J / K        same history back / forward (same #HotIf); HUD bottom-right
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
 ;                        menu). Mouse/grid: unchanged (drag / grid L/R).
 ;   CapsLock + LShift / \   Ctrl+Shift+P (command palette) — Caps before Shift
@@ -604,22 +594,20 @@ CapsLock & Enter::
 
 ; Chord ideas (unbound or absorb-only; pick what you use)
 ;   CapsLock + Enter     bound above → Ditto (Ctrl+`)
-;   CapsLock + RShift    bound above → Ctrl+P Quick Open; Komorebi uses LWin+RShift
-;                        for komorebic stop — different chord
+;   CapsLock + RShift    bound above → Ctrl+P Quick Open
 ;   Shift + Enter        app-specific (Ctrl+Enter submit in chat); global is
 ;                        risky — prefer #HotIf WinActive(...) if you add it
 ;   Shift + RShift       almost never used; good slot for one-shot macro or
 ;                        `Send "#^d"` virtual-desktop preview (Win10/11)
-;   ` leader (~SC029 & …) second prefix layer like LWin Komorebi — quick
-;                        settings Win+I, task mgr Ctrl+Shift+Esc, etc.
+;   ` leader (~SC029 & …) optional second prefix layer — quick settings Win+I, etc.
 ; Tab / window / element switching  +  focus history
 ;   CapsLock + , / .   window history back / forward (when not mouse/grid)
 ;   LAlt + J / K       same (back / forward)
+;   CapsLock + RAlt    reverse history order + focus ex-oldest (HUD tooltip)
 ;   *RAlt              Win+Tab (Task View) when Left Alt is *not* held — `*` for
 ;                        AltGr stack (see AHK docs). If LAlt is down first, RAlt
-;                        is reserved for LAlt+RAlt lock instead of Task View.
-;   LAlt + RAlt        lock workstation (LockWorkStation) — press LAlt first, then RAlt.
-;   CapsLock + RAlt    Alt+Tab (window switcher)
+;                        is reserved for LAlt+RAlt clear-history instead of Task View.
+;   LAlt + RAlt        clear window history (LAlt first, then RAlt)
 ;   Physical ; (held) + Tab     Shift+Tab (reverse element)
 ;   ' (held) + Tab     Tab ×3 (faster form / control stepping; not in mouse/grid)
 ;   CapsLock + m / n   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
@@ -629,9 +617,6 @@ CapsLock & Enter::
 ;   CapsLock + s       maximize ↔ restore toggle
 ;   CapsLock + b       Win+D    (Show Desktop)
 ;
-; LWin+N / LWin+M are swallowed (no-op) so they do not trigger shell shortcuts;
-; same trade-off as other swallowed Win chords.
-
 ; Holds `mod` for 8 ms so Windows' shell hook (Win+Tab, Alt+Tab) latches
 ; before `key` arrives — otherwise `key` can leak to the focused app.
 ShellCombo(mod, key) {
@@ -640,31 +625,9 @@ ShellCombo(mod, key) {
     Send "{" key "}{" mod " up}"
 }
 
-; Transient tooltip on slot 2. A named clearer avoids creating an anonymous
-; closure on every call.
-Notify(text, ms := 1200) {
-    ToolTip text, , , 2
-    SetTimer ClearNotify, -ms
-}
-ClearNotify() {
-    ToolTip , , , 2
-}
-
 ; Win+Tab (Task View). *RAlt only when LAlt is not held (see #HotIf block).
 TaskViewHotkey() {
     ShellCombo("LWin", "Tab")
-}
-
-; Lock session (same idea as Win+L — sign-in screen; session keeps running).
-LockWorkstation(*) {
-    if !DllCall("LockWorkStation")
-        Notify("Lock: LockWorkStation failed", 2200)
-}
-
-HistoryTitle(id) {
-    title := ""
-    try title := WinGetTitle("ahk_id " id)
-    return StrLen(title) > 50 ? SubStr(title, 1, 47) "..." : title
 }
 
 FindInHistory(id) {
@@ -675,6 +638,60 @@ FindInHistory(id) {
         if winHistory[A_Index] = id
             return A_Index
     return 0
+}
+
+; Small bottom-right tooltip (slot 11) for window-history state / actions.
+HistoryHudWorkArea(&L, &T, &R, &B) {
+    MouseGetPos &mx, &my
+    loop MonitorGetCount() {
+        MonitorGet A_Index, &mL, &mT, &mR, &mB
+        if (mx >= mL && mx < mR && my >= mT && my < mB) {
+            MonitorGetWorkArea A_Index, &L, &T, &R, &B
+            return
+        }
+    }
+    MonitorGetWorkArea 1, &L, &T, &R, &B
+}
+
+HistoryHudHide(*) {
+    ToolTip , , , 11
+}
+
+HistoryHudLine() {
+    global winHistory, winViewingId
+    n := winHistory.Length
+    if n = 0
+        return "0/0"
+    idx := FindInHistory(winViewingId)
+    pos := (idx = 0 ? "?" : idx)
+    line := pos "/" n
+    if idx = 1
+        line .= " oldest"
+    if idx = n && idx != 0
+        line .= " current"
+    return line
+}
+
+HistoryHud(text, ms := 900) {
+    HistoryHudWorkArea(&wl, &wt, &wr, &wb)
+    est := Min(200, Max(72, StrLen(text) * 5))
+    tipX := wr - 8 - est
+    if tipX < wl + 4
+        tipX := wl + 4
+    tipY := wb - 28
+    ToolTip text, tipX, tipY, 11
+    SetTimer HistoryHudHide, -ms
+}
+
+PruneDeadHistory() {
+    global winHistory
+    i := 1
+    while i <= winHistory.Length {
+        if !WinExist("ahk_id " winHistory[i])
+            winHistory.RemoveAt(i)
+        else
+            i += 1
+    }
 }
 
 ; Polled 150 ms. Keeps winHistory ordered oldest→newest, deduplicated,
@@ -739,36 +756,55 @@ WalkHistory(step) {
 }
 
 GoBackWindowHistory() {
-    global winHistory
-    idx := WalkHistory(-1)
-    if !idx {
-        Notify("◀ oldest window")
-        return
-    }
-    id := winHistory[idx]
-    Notify("◀ back " (winHistory.Length - idx) ": " HistoryTitle(id))
+    WalkHistory(-1)
+    HistoryHud(HistoryHudLine())
 }
 
 GoForwardWindowHistory() {
-    global winHistory
-    idx := WalkHistory(+1)
-    if !idx {
-        Notify("▶ already at current")
+    WalkHistory(+1)
+    HistoryHud(HistoryHudLine())
+}
+
+ReverseWindowHistory(*) {
+    global winHistory, winViewingId, lastFocusedId, trackingPaused
+    PruneDeadHistory()
+    n := winHistory.Length
+    if n < 2 {
+        HistoryHud(HistoryHudLine() "`nrev need 2+")
         return
     }
-    id := winHistory[idx]
-    steps := winHistory.Length - idx
-    Notify((steps = 0 ? "▶ current: " : "▶ back " steps ": ") HistoryTitle(id))
+    Loop Floor(n / 2) {
+        i := A_Index
+        j := n - i + 1
+        t := winHistory[i]
+        winHistory[i] := winHistory[j]
+        winHistory[j] := t
+    }
+    id := winHistory[n]
+    trackingPaused := true
+    try WinActivate "ahk_id " id
+    lastFocusedId := id
+    winViewingId := id
+    SetTimer ResumeTracking, -250
+    HistoryHud(HistoryHudLine() "`nreversed")
+}
+
+ClearWindowHistory(*) {
+    global winHistory, winViewingId, lastFocusedId
+    winHistory := []
+    winViewingId := 0
+    lastFocusedId := 0
+    HistoryHud("cleared")
 }
 
 ; Bare `RAlt::` often never fires when the OS/driver holds LCtrl first (AltGr).
 ; `*` wildcard ensures it still runs even with phantom LCtrl (AltGr stack).
 ; When Left Alt is already held (LAlt before RAlt), *RAlt is disabled so
-; `LAlt & RAlt` can lock the session instead of Task View.
+; `LAlt & RAlt` can clear window history instead of Task View.
 #HotIf !GetKeyState("LAlt", "P")
 *RAlt:: TaskViewHotkey()
 #HotIf
-CapsLock & RAlt:: ShellCombo("LAlt", "Tab")
+CapsLock & RAlt:: ReverseWindowHistory
 
 ; Reverse UI tab order (Shift+Tab). Hold physical ; (vkBA), press Tab.
 ; GetKeyState polling — `;` is NOT a prefix key, so normal `;` typing has
@@ -794,133 +830,9 @@ Tab:: {
 CapsLock & m:: Send "^{Tab}"
 CapsLock & n:: Send "^+{Tab}"
 
-; Komorebi  (LWin leader — prefix style, like CapsLock; no right-Win mirror)
-;   LWin + J/K/O/I      focus   left / down / right / up
-;   LWin + Q + …        move    (hold Q + direction)
-;   LWin + , / .        resize  horizontal -/+
-;   LWin + vkBA / vkDE  resize  vertical -/+  (; and ' keys)
-;   LWin + [ / ]        manage / toggle-float
-;   LWin + \ /          cycle-layout / retile
-;   LWin + Enter        komorebic start
-;   LWin + RShift       komorebic stop
-;   LWin + N / M        swallowed (reserved; window history is Caps+, .)
-;
-; Static `LWin & …` hotkeys (prefix before bare `LWin::`). Bare `LWin::` swallows
-; a lone Win tap — Start / Search / Copilot does not open; use
-; Flow Launcher (or your own binding) for launcher. Chords still override
-; the usual Win+ shortcuts while the combo is pressed.
-;
-; komorebic.exe must be on PATH. Run is spawned "Hide" so no console flashes.
-
-Komorebi(sub) {
-    Run "komorebic.exe " sub, , "Hide"
-}
-
-; Shared handler for JKOI: Q held = move, otherwise focus.
-KomoDir(dir) {
-    Komorebi((GetKeyState("q", "P") ? "move " : "focus ") dir)
-}
-
-; Block shell surfaces that steal focus during Task-View's dismiss animation
-; (desktop, taskbar, Task-View containers themselves).
-IsRealAppWindow(id) {
-    cls := ""
-    try cls := WinGetClass("ahk_id " id)
-    return cls != "" && cls != "WorkerW" && cls != "Progman"
-        && cls != "Shell_TrayWnd"
-        && cls != "MultitaskingViewFrame"
-        && cls != "XamlExplorerHostIslandWindow"
-}
-
-; Poll (≤ timeoutMs) until a real app window takes focus. Task View's
-; dismiss animation runs 150–250 ms during which "active" is often a shell
-; surface; a fixed Sleep would risk targeting the desktop.
-WaitForRealAppWindow(timeoutMs) {
-    deadline := A_TickCount + timeoutMs
-    while A_TickCount < deadline {
-        id := 0
-        try id := WinGetID("A")
-        if id && IsRealAppWindow(id)
-            return id
-        Sleep 15
-    }
-    return 0
-}
-
-; WinRestore first to unconditionally clear any stale WS_MAXIMIZE flag
-; komorebi may have left behind; without it WinMaximize can no-op. Only
-; invoked when FLOAT_MAXIMIZE is on (gated in KomorebiTouch).
-ForceMaximize(id) {
-    if !WinExist("ahk_id " id)
-        return
-    try {
-        WinRestore "ahk_id " id
-        WinMaximize "ahk_id " id
-    }
-}
-
-; Manage / toggle-float with Task-View awareness.
-;   • If Task View is active, commit its highlighted thumbnail first (Enter)
-;     so komorebic acts on the window the user picked, not on Task View.
-;   • toggle-float forces a `retile` right after: on some builds the auto-
-;     retile event is swallowed when the window was just touched by Task
-;     View's commit, leaving remaining tiled windows stacked at overlapping
-;     rects.
-;   • toggle-float is a true toggle — pressing ] on an already-floating
-;     window re-tiles it.
-KomorebiTouch(sub, icon, verb) {
-    taskView := WinActive("ahk_class MultitaskingViewFrame")
-    || WinActive("ahk_class XamlExplorerHostIslandWindow")
-    if taskView {
-        Send "{Enter}"
-        WinWaitNotActive "ahk_id " taskView, , 0.5
-        WaitForRealAppWindow(600)
-    }
-    Komorebi(sub)
-    if sub = "toggle-float"
-        Komorebi("retile")
-    id := 0
-    try id := WinGetID("A")
-    if FLOAT_MAXIMIZE && sub = "toggle-float" && id && IsRealAppWindow(id)
-        SetTimer ForceMaximize.Bind(id), -200
-    Notify(icon " " verb ": " HistoryTitle(id))
-}
-
-; Komorebi hotkeys: static LWin & … (must appear before bare LWin::). No RWin mirror
-; (single Win key). Swallow Win+Q so Quick Assist / Game Bar does not fire; KomoDir
-; still reads Q via GetKeyState. Lone LWin tap → return (no Start menu).
-
-KomorebiNotifyStart(*) {
-    Komorebi("start")
-    Notify("⚡ komorebi start")
-}
-KomorebiNotifyStop(*) {
-    Komorebi("stop")
-    Notify("⏹ komorebi stop")
-}
-
-LWin & q:: return
-LWin & j:: KomoDir("left")
-LWin & k:: KomoDir("down")
-LWin & o:: KomoDir("right")
-LWin & i:: KomoDir("up")
-LWin & n:: return
-LWin & m:: return
-LWin & ,:: Komorebi("resize-axis horizontal decrease")
-LWin & .:: Komorebi("resize-axis horizontal increase")
-LWin & vkBA:: Komorebi("resize-axis vertical decrease")
-LWin & vkDE:: Komorebi("resize-axis vertical increase")
-LWin & \:: Komorebi("cycle-layout next")
-LWin & /:: Komorebi("retile")
-LWin & [:: KomorebiTouch("manage", "▣", "Tiled")
-LWin & ]:: KomorebiTouch("toggle-float", "▢", "Floated")
-LWin & Enter:: KomorebiNotifyStart
-LWin & RShift:: KomorebiNotifyStop
-LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
-
-; LAlt leader (Escape via LAlt+Caps only, lock, history J/K). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
+; LAlt leader (Escape via LAlt+Caps only, history J/K, clear history). *RAlt = Task View when LAlt up.
 LAlt & CapsLock:: LAltCapsEscChord()
-LAlt & RAlt:: LockWorkstation()
+LAlt & RAlt:: ClearWindowHistory
 
 ; Window management — Caps+s toggles maximize ↔ restore. Caps+g = region snip (Win+Shift+S).
 
