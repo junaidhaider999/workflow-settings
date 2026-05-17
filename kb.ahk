@@ -94,7 +94,7 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ;   1) Mouse mode      #HotIf mouseMode — Caps+F pointer / IJKL
 ;   2) Grid mode       #HotIf gridActive — Caps+/ keynav overlay
 ;   3) Komorebi mode   LWin+… — komorebic tiling (static chords; lone LWin swallowed)
-;   4) Window history  TrackFocus timer + Caps+, . (GoBack/ForwardWindowHistory)
+;   4) Window history  TrackFocus timer + Caps+, . or LAlt+J/K (GoBack/ForwardWindowHistory)
 
 ; Mouse mode
 ;   Entry / exit       CapsLock+F    tap<TAP_SECS on F = LATCH, else HOLD (not in grid)
@@ -502,12 +502,15 @@ $Backspace:: GridUndoZoom()
 CapsLock & w:: Send "{Blind}^n"               ; new window (most apps)
 CapsLock & ,:: GoBackWindowHistory()
 CapsLock & .:: GoForwardWindowHistory()
+LAlt & j:: GoBackWindowHistory()
+LAlt & k:: GoForwardWindowHistory()
 #HotIf
 
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
 ;   CapsLock + h/j/k/l  vim arrows (Navigate); d→Shift, Space→Ctrl; Space+Up/Down = VERT_BOOST
 ;   CapsLock + [ / ]    browser back / forward (!{Left} / !{Right} — was LAlt+p / LAlt+i)
 ;   CapsLock + , / .    window history back / forward (only when not mouse/grid)
+;   LAlt + J / K        same history back / forward (same #HotIf)
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
 ;                        menu). Mouse/grid: unchanged (drag / grid L/R).
 ;   CapsLock + LShift / \   Ctrl+Shift+P (command palette) — Caps before Shift
@@ -610,7 +613,8 @@ CapsLock & Enter::
 ;   ` leader (~SC029 & …) second prefix layer like LWin Komorebi — quick
 ;                        settings Win+I, task mgr Ctrl+Shift+Esc, etc.
 ; Tab / window / element switching  +  focus history
-;   CapsLock + , / .   window history back / forward (when not mouse/grid — see #HotIf)
+;   CapsLock + , / .   window history back / forward (when not mouse/grid)
+;   LAlt + J / K       same (back / forward)
 ;   *RAlt              Win+Tab (Task View) when Left Alt is *not* held — `*` for
 ;                        AltGr stack (see AHK docs). If LAlt is down first, RAlt
 ;                        is reserved for LAlt+RAlt lock instead of Task View.
@@ -914,7 +918,7 @@ LWin & Enter:: KomorebiNotifyStart
 LWin & RShift:: KomorebiNotifyStop
 LWin:: return                                  ; swallow lone LWin — no Start / Copilot tap
 
-; LAlt leader (Escape via LAlt+Caps only, lock). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
+; LAlt leader (Escape via LAlt+Caps only, lock, history J/K). LAlt+RAlt = lock. *RAlt = Task View when LAlt up.
 LAlt & CapsLock:: LAltCapsEscChord()
 LAlt & RAlt:: LockWorkstation()
 
