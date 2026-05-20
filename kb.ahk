@@ -17,19 +17,20 @@ SetCapsLockState "AlwaysOff"
 ; Config
 
 ; Mouse mode — LAlt+F entry (hold F for whole session; no latch):
-;   Cruise = LAlt+F · Precision = LAlt+F+W — release F to exit
+;   Cruise = LAlt+F · Precision = LAlt+F+Caps — release F to exit
 ;   (Text nav: LAlt+HJKL — see hotkeys below; Caps+N/M → Alt+Shift+, / . in browsers only)
 MOUSE_TICK_MS := 10                         ; 100 Hz
 MOUSE_STEP_MIN := 7                          ; cruise ramp floor — soft first moves
 MOUSE_STEP_CRUISE := 36                     ; cruise plateau — controlled day-to-day speed
-MOUSE_STEP_PRECISION_LO := 1                  ; LAlt+F+W: first ticks — single-pixel nudges
-MOUSE_STEP_PRECISION := 7                    ; LAlt+F+W: steady fine aim (after ease-in)
+MOUSE_STEP_PRECISION_LO := 1                  ; LAlt+F+Caps: first ticks — single-pixel nudges
+MOUSE_STEP_PRECISION := 7                    ; LAlt+F+Caps: steady fine aim (after ease-in)
 MOUSE_PRECISION_RAMP_TICKS := 5               ; ticks of cosine ease-in LO→HI (then hold HI)
 MOUSE_RAMP := 15                         ; cruise ramp ticks — longer = calmer accel
+MOUSE_DRAG_HOLD_MS := 160                  ; Alt+; held longer → drag; shorter → left click
 
 ; Scroll / text navigation tuning.
 SCROLL_NORMAL := 1, SCROLL_FAST := 5           ; wheel ticks
-VERT_BOOST := 3                              ; lines jumped per Alt+a+K/J (vim up/down)
+VERT_BOOST := 3                              ; lines jumped per Alt+w+K/J (vim up/down)
 
 ; Window-history cap — oldest entries evicted first.
 WIN_HISTORY_MAX := 50
@@ -57,6 +58,7 @@ GRID_LABEL_FG := "00FF99"
 mouseMode := false
 mouseHoldTicks := 0                             ; ramp counter for MouseTick (cruise + precision)
 mouseDrag := ""                            ; "" | "L" | "R"
+mouseAltPushed := false                         ; synthetic LAlt down from AltRestore after click/drag
 
 ; Focus history — ordered oldest → newest. `winViewingId` is the walk
 ; cursor; deriving step counts from its index avoids off-by-one / dead-
@@ -75,7 +77,7 @@ gridRectStack := []
 gridPool := []                             ; [{g,t}, …] built lazily
 
 ; Four layers the script is built around (only one overlay at a time for 1–2):
-;   1) Mouse mode      #HotIf mouseMode — LAlt+F (+W precision) · LAlt+IJKL pointer
+;   1) Mouse mode      #HotIf mouseMode — LAlt+F (+Caps precision) · LAlt+IJKL pointer
 ;   2) Grid mode       #HotIf gridActive — Caps+/ keynav overlay
 ;   3) Window history  TrackFocus timer + Caps+H/L; Caps+RAlt reverse; LAlt+RAlt clear
 
@@ -84,12 +86,12 @@ gridPool := []                             ; [{g,t}, …] built lazily
 ;   Exit               release F
 ;   Motion             LAlt+I/J/K/L  100-Hz poller (bare keys swallowed — no typing)
 ;   Cruise             LAlt+F        MIN→CRUISE (cosine, MOUSE_RAMP)
-;   Precision          LAlt+F+W      cosine ease-in → low steady step
+;   Precision          LAlt+F+Caps   cosine ease-in → low steady step
 ;   Scroll             LAlt+U/O      LAlt+E = fast wheel
-;   Left / right drag  LAlt+; / LAlt+'
+;   Left / right click LAlt+; or Caps+; (vkBA) / LAlt+' or Caps+' (vkDE) — tap = Click; hold = drag
 
 MousePrecisionPhys() {
-    return GetKeyState("LAlt", "P") && GetKeyState("f", "P") && GetKeyState("w", "P")
+    return GetKeyState("LAlt", "P") && GetKeyState("f", "P") && GetKeyState("CapsLock", "P")
 }
 
 ; Single source of truth for motion speed (MouseTick reads `.step` only).
@@ -154,6 +156,11 @@ EnterMouseMode() {
     SetTimer MouseTick, MOUSE_TICK_MS
 }
 
+ClearCapsPrefix() {
+    Send "{Blind}{CapsLock up}"
+    SetCapsLockState "AlwaysOff"
+}
+
 ; Auto-releases any live drag button so the system can't be left with a
 ; stuck mouse button (e.g. chord released mid-drag in HOLD mode).
 ExitMouseMode() {
@@ -164,8 +171,12 @@ ExitMouseMode() {
         Click "Left Up"
     else if mouseDrag = "R"
         Click "Right Up"
-    mouseMode := false
     mouseDrag := ""
+    if GetKeyState("LButton", "P")
+        Click "Left Up"
+    if GetKeyState("RButton", "P")
+        Click "Right Up"
+    mouseMode := false
     trackingPaused := false
     try {
         id := WinGetID("A")
@@ -175,9 +186,8 @@ ExitMouseMode() {
         }
     }
     PruneDeadHistory()
-    ; Clear CapsLock prefix state (stuck leader breaks Caps+H/L history chords).
-    Send "{Blind}{CapsLock up}"
-    SetCapsLockState "AlwaysOff"
+    ClearCapsPrefix()
+    MouseReleaseMods()
 }
 
 ; Hold LAlt+F for the whole mouse session (no latch).
@@ -193,8 +203,8 @@ MouseModeHold(key) {
 CapsSemicolonAction(*) {
     global gridActive, mouseMode
     if mouseMode
-        return
-    if gridActive
+        DragHold("L", "vkBA")
+    else if gridActive
         GridClick("L")
     else
         Send "{Enter}"
@@ -203,24 +213,81 @@ CapsSemicolonAction(*) {
 CapsQuoteAction(*) {
     global gridActive, mouseMode
     if mouseMode
-        return
-    if gridActive
+        DragHold("R", "vkDE")
+    else if gridActive
         GridClick("R")
     else
         Send "{AppsKey}"
 }
 
-; Tap = click, hold = drag. Re-entry guard prevents overlapping chords
-; leaving the button in an inconsistent state.
-DragHold(btn, keyName) {
-    global mouseDrag
-    if mouseDrag != ""
+; Drop hook/OS Alt before synthetic clicks (Alt held for LAlt+F / LAlt+; chords).
+MouseReleaseMods() {
+    if GetKeyState("LAlt", "P")
+        SendInput "{Blind}{LAlt up}"
+    if GetKeyState("RAlt", "P")
+        SendInput "{Blind}{RAlt up}"
+}
+
+; Physical ; / ' — vk names alone are unreliable for GetKeyState after hotkeys.
+ClickKeys(btn) {
+    return btn = "L" ? ["vkBA", ";", "SC027"] : ["vkDE", "'", "SC028"]
+}
+
+ClickKeyDown(btn) {
+    for k in ClickKeys(btn)
+        if GetKeyState(k, "P")
+            return true
+    return false
+}
+
+; Tap = release before MOUSE_DRAG_HOLD_MS · hold longer = drag.
+DragHold(btn, vk) {
+    global mouseDrag, mouseMode
+    if !mouseMode || mouseDrag != ""
         return
-    mouseDrag := btn
-    Click (btn = "L" ? "Left Down" : "Right Down")
-    KeyWait keyName
-    Click (btn = "L" ? "Left Up" : "Right Up")
-    mouseDrag := ""
+    isLeft := (btn = "L")
+    if !ClickKeyDown(btn) {
+        MouseSendClick(isLeft, false)
+        return
+    }
+    t0 := A_TickCount
+    while ClickKeyDown(btn) && mouseMode {
+        if (A_TickCount - t0) >= MOUSE_DRAG_HOLD_MS
+            break
+        Sleep 5
+    }
+    elapsed := A_TickCount - t0
+    if ClickKeyDown(btn) && mouseMode && elapsed >= MOUSE_DRAG_HOLD_MS {
+        mouseDrag := btn
+        try
+            MouseSendClick(isLeft, true, btn)
+        finally
+            mouseDrag := ""
+    } else
+        MouseSendClick(isLeft, false)
+}
+
+MouseSendClick(isLeft, isDrag, btn := "") {
+    global mouseMode
+    ClearCapsPrefix()
+    MouseReleaseMods()
+    prevSend := A_SendMode
+    try {
+        SendMode "Event"
+        if isDrag {
+            try {
+                Click (isLeft ? "Left Down" : "Right Down")
+                while ClickKeyDown(btn) && mouseMode
+                    Sleep 10
+            } finally {
+                Click (isLeft ? "Left Up" : "Right Up")
+            }
+        } else {
+            Click (isLeft ? "Left" : "Right")
+        }
+    } finally {
+        SendMode prevSend
+    }
 }
 
 ; Mouse mode — LAlt+F: hold F for session (LAlt+F+W = precision, LAlt+E = fast scroll).
@@ -229,67 +296,83 @@ LAlt & f:: MouseModeHold("f")
 #HotIf
 
 #HotIf mouseMode
+; Precision uses physical Caps — absorb without CapsLock& prefix wait (stuck prefix
+; eats the next LAlt+; click after exit).
+*CapsLock:: SetCapsLockState "AlwaysOff"
+*CapsLock Up:: {
+    ClearCapsPrefix()
+}
+#InputLevel 1
 LAlt & j:: MouseTick()
 LAlt & k:: MouseTick()
 LAlt & l:: MouseTick()
 LAlt & i:: MouseTick()
 LAlt & u:: Scroll("Up")
 LAlt & o:: Scroll("Down")
-LAlt & `;:: DragHold("L", ";")
-LAlt & ':: DragHold("R", "'")
-; Bare keys: swallow typing only under #HotIf (never Hotkey-command — that breaks Caps+H/L after exit).
-$a:: return
-$b:: return
-$c:: return
-$d:: return
-$e:: return
-$f:: return
-$g:: return
-$h:: return
-$i:: return
-$j:: return
-$k:: return
-$l:: return
-$m:: return
-$n:: return
-$o:: return
-$p:: return
-$q:: return
-$r:: return
-$s:: return
-$t:: return
-$u:: return
-$v:: return
-$w:: return
-$x:: return
-$y:: return
-$z:: return
-$0:: return
-$1:: return
-$2:: return
-$3:: return
-$4:: return
-$5:: return
-$6:: return
-$7:: return
-$8:: return
-$9:: return
-$-:: return
-$=:: return
-$[:: return
-$]:: return
-$\:: return
-$vkBA:: return
-$vkDE:: return
-$,:: return
-$.:: return
-$/:: return
-$`:: return
-$Space:: return
-$Tab:: return
-$Enter:: return
-$Backspace:: return
-$Delete:: return
+#InputLevel 2
+LAlt & vkBA:: DragHold("L", "vkBA")
+LAlt & `;:: DragHold("L", "vkBA")
+LAlt & vkDE:: DragHold("R", "vkDE")
+LAlt & ':: DragHold("R", "vkDE")
+CapsLock & vkBA:: DragHold("L", "vkBA")
+CapsLock & `;:: DragHold("L", "vkBA")
+CapsLock & vkDE:: DragHold("R", "vkDE")
+CapsLock & ':: DragHold("R", "vkDE")
+#InputLevel 0
+; Swallow keys with ANY modifier state (`*`) so Alt+W/E/etc. don't leak to apps
+; while mouse mode is on. Explicit `LAlt &` motion/scroll hotkeys take priority.
+*a:: return
+*b:: return
+*c:: return
+*d:: return
+*e:: return
+*f:: return
+*g:: return
+*h:: return
+*i:: return
+*j:: return
+*k:: return
+*l:: return
+*m:: return
+*n:: return
+*o:: return
+*p:: return
+*q:: return
+*r:: return
+*s:: return
+*t:: return
+*u:: return
+*v:: return
+*w:: return
+*x:: return
+*y:: return
+*z:: return
+*0:: return
+*1:: return
+*2:: return
+*3:: return
+*4:: return
+*5:: return
+*6:: return
+*7:: return
+*8:: return
+*9:: return
+*-:: return
+*=:: return
+*[:: return
+*]:: return
+*\:: return
+*vkBA:: return
+*vkDE:: return
+*,:: return
+*.:: return
+*/:: return
+*`:: return
+*Space:: return
+*Tab:: return
+*Enter:: return
+*Backspace:: return
+*Delete:: return
 ; Swallow Caps chords during mouse (static #HotIf only).
 CapsLock & q:: return
 CapsLock & w:: return
@@ -339,8 +422,7 @@ CapsLock & RShift:: return
 CapsLock & \:: return
 CapsLock & RAlt:: return
 CapsLock & /:: return
-CapsLock & vkBA:: return
-CapsLock & vkDE:: return
+; vkBA/vkDE omitted — LAlt+; / LAlt+' must win while Caps is held for precision.
 #HotIf
 
 ; Grid navigation  (CapsLock + / — "keynav" style click-anywhere)
@@ -588,22 +670,24 @@ CapsLock & l:: GoForwardWindowHistory()
 #HotIf
 
 ; Text navigation + scroll  (Navigate & Scroll are shared with mouse mode)
-;   LAlt + h/j/k/l     vim arrows (Navigate); d→Shift, a→Ctrl word/para (#HotIf !gridActive)
-;   LAlt + a           absorb — hold with h/j/k/l for ^arrow word nav (was Caps+Space)
+;   LAlt + h/j/k/l     vim arrows (Navigate); a/d→Shift selection, hold w→^ word/para (#HotIf !gridActive)
+;   LAlt + w / a       absorb — hold physical w/a with h/j/k/l for word nav / selection
 ;   CapsLock + n / m   Alt+Shift+, / Alt+Shift+.  (browsers only)
 ;   CapsLock + [ / ]    browser back / forward (!{Left} / !{Right} — was LAlt+p / LAlt+i)
 ;   CapsLock + H / L    window history back / forward (only when not mouse/grid)
-;   CapsLock + J / K    Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
+;   CapsLock + J / K    next/prev tab (WT: ^Tab; Cursor: ^PgDn/^PgUp; else: ^Tab)
 ;   CapsLock + ; / '    outside mouse/grid: ; → Enter, ' → AppsKey (context
 ;                        menu). Mouse/grid: unchanged (drag / grid L/R).
 ;   CapsLock + LShift / \   Ctrl+Shift+P (command palette) — Caps before Shift
 
 ; Outside mouse mode: send the arrow,
-; optionally with d→Shift and/or a→Ctrl layered on; vertical +a
+; optionally with a/d→Shift selection, hold w→^ word nav; vertical +w
 ; jumps VERT_BOOST lines at a time instead of one-at-a-time.
 Navigate(arrow) {
-    mods := GetKeyState("d", "P") ? "+" : ""
-    if GetKeyState("a", "P") {
+    mods := ""
+    if GetKeyState("a", "P") || GetKeyState("d", "P")
+        mods .= "+"
+    if GetKeyState("w", "P") {
         if arrow = "Up" || arrow = "Down" {
             Send mods "{" arrow " " VERT_BOOST "}"
             return
@@ -623,6 +707,7 @@ Scroll(dir) {
 }
 
 #HotIf !gridActive && !mouseMode
+LAlt & w:: return
 LAlt & a:: return
 LAlt & h:: Navigate("Left")
 LAlt & j:: Navigate("Down")
@@ -643,15 +728,15 @@ ToggleMaximizeActive() {
 ; occasionally flips CapsLock on and produces capital-letter glitches. This
 ; explicit hotkey absorbs the bare press and re-asserts the off state as
 ; insurance. Doesn't fire when a modifier is held, so `LAlt & CapsLock`
-; (Escape) still works.
+; (Escape when !mouseMode) still works.
 CapsLock:: SetCapsLockState "AlwaysOff"
 
 ; Space / D absorbed as pure modifiers (read via GetKeyState elsewhere).
 CapsLock & Space:: return
 CapsLock & d:: return
 
-CapsLock & j:: Send "^{Tab}"
-CapsLock & k:: Send "^+{Tab}"
+CapsLock & j:: SendTabNextSmart()
+CapsLock & k:: SendTabPrevSmart()
 CapsLock & n:: SendBrowserAltShiftComma()
 CapsLock & m:: SendBrowserAltShiftPeriod()
 CapsLock & z:: WinMinimize "A"
@@ -662,10 +747,16 @@ CapsLock & ]:: Send "!{Right}"
 CapsLock & u:: Scroll("Up")
 CapsLock & o:: Scroll("Down")
 
+#HotIf !mouseMode
 CapsLock & `;:: CapsSemicolonAction()
 CapsLock & vkBA:: CapsSemicolonAction()
 CapsLock & ':: CapsQuoteAction()
 CapsLock & vkDE:: CapsQuoteAction()
+LAlt & `;:: CapsSemicolonAction()
+LAlt & vkBA:: CapsSemicolonAction()
+LAlt & ':: CapsQuoteAction()
+LAlt & vkDE:: CapsQuoteAction()
+#HotIf
 
 CapsLock & LShift:: Send "{Blind}^+p"           ; command palette (Cursor / VS Code)
 CapsLock & RShift:: Send "{Blind}^p"            ; fuzzy Quick Open / file finder (Ctrl+P)
@@ -689,7 +780,7 @@ CapsLock & Enter::
 ;   ` leader (~SC029 & …) optional second prefix layer — quick settings Win+I, etc.
 ; Tab / window / element switching  +  focus history
 ;   CapsLock + H / L   window history back / forward (when not mouse/grid)
-;   CapsLock + J / K   Ctrl+Tab / Ctrl+Shift+Tab  (next / prev tab)
+;   CapsLock + J / K   next/prev tab (WT: ^Tab; Cursor: ^PgDn/^PgUp)
 ;   CapsLock + RAlt    reverse history order + focus ex-oldest (HUD tooltip)
 ;   *RAlt              Win+Tab (Task View) when Left Alt is *not* held — `*` for
 ;                        AltGr stack (see AHK docs). If LAlt is down first, RAlt
@@ -919,9 +1010,11 @@ Tab:: {
 }
 #HotIf
 
-; LAlt leader (Escape via LAlt+Caps; text nav HJKL when !grid; clear history LAlt+RAlt).
+; LAlt leader (Escape via LAlt+Caps when !mouseMode; text nav HJKL when !grid; clear history LAlt+RAlt).
 ;   Window history: Caps+H/L. *RAlt = Task View when LAlt up.
+#HotIf !mouseMode
 LAlt & CapsLock:: LAltCapsEscChord()
+#HotIf
 LAlt & RAlt:: ClearWindowHistory
 
 ; Window management — Caps+s toggles maximize ↔ restore. Caps+g = region snip (Win+Shift+S).
@@ -948,9 +1041,16 @@ CapsLock & Del:: Send "^{Delete}"
 ;   CapsLock + 9 / 0     first tab / last tab  (^1 / ^9 — Chrome/Edge last = Ctrl+9)
 ;   CapsLock + r         Ctrl+L  (all apps — omnibox / location bar in browsers)
 ;   CapsLock + y/t/i/z  new tab / close tab / reopen closed / minimize
-;                        (close: Ctrl+Shift+W in WT; reopen: Ctrl+Alt+T in WT — bind
-;                        action restoreLastClosed to ctrl+alt+t; stock WT uses
-;                        Ctrl+Shift+T for new tab only)
+;                        (close: Ctrl+Shift+W in WT, Ctrl+W in Cursor; reopen: Ctrl+Alt+T in WT)
+
+IsCursorFocused() {
+    try {
+        exe := WinGetProcessName("A")
+        return exe = "Cursor.exe" || exe = "Code.exe"
+    } catch {
+        return false
+    }
+}
 
 IsWindowsTerminalFocused() {
     try {
@@ -987,8 +1087,28 @@ SendBrowserAltShiftPeriod(*) {
 SendCloseTabSmart(*) {
     if IsWindowsTerminalFocused()
         Send "^+w"
+    else if IsCursorFocused()
+        Send "^w"                                  ; close active editor tab
     else
         Send "^w"
+}
+
+SendTabNextSmart(*) {
+    if IsWindowsTerminalFocused()
+        Send "^{Tab}"
+    else if IsCursorFocused()
+        Send "^{PgDn}"                             ; tab-bar order (vertical tabs)
+    else
+        Send "^{Tab}"
+}
+
+SendTabPrevSmart(*) {
+    if IsWindowsTerminalFocused()
+        Send "^+{Tab}"
+    else if IsCursorFocused()
+        Send "^{PgUp}"
+    else
+        Send "^+{Tab}"
 }
 
 SendNewTabSmart(*) {
